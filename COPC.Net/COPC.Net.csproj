@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <RootNamespace>Copc</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>COPC.Net Contributors</Authors>
+    <Description>A C# library for reading and writing Cloud Optimized Point Cloud (COPC) files</Description>
+    <Copyright>Copyright © 2025</Copyright>
+    <PackageProjectUrl>https://copc.io/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/your-repo/COPC.Net</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\repos\LasZip.Net\LasZip.Net\LasZip.Net.csproj" />
+  </ItemGroup>
+
+</Project>
+
