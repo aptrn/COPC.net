@@ -1,6 +1,6 @@
-repos/*
 prompts/*
 temp/*
+cache/*
 *.copc.laz
 *.laz
 *.ply
