@@ -1,2 +1,6 @@
 repos/*
 prompts/*
+temp/*
+*.copc.laz
+*.laz
+*.ply
