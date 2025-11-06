@@ -182,6 +182,54 @@ public class Box
 }
 ```
 
+### Frustum
+
+View frustum defined by 6 planes, used for camera-based spatial queries.
+
+```csharp
+public class Frustum
+{
+    public Plane[] Planes { get; }
+    public Plane Left { get; }
+    public Plane Right { get; }
+    public Plane Bottom { get; }
+    public Plane Top { get; }
+    public Plane Near { get; }
+    public Plane Far { get; }
+    
+    // Create from view-projection matrix
+    public static Frustum FromViewProjectionMatrix(double[] viewProjectionMatrix, bool normalize = true);
+    public static Frustum FromViewProjectionMatrix(float[] viewProjectionMatrix, bool normalize = true);
+    
+    // Create from separate matrices
+    public static Frustum FromViewAndProjection(double[] viewMatrix, double[] projectionMatrix, bool normalize = true);
+    
+    // Test intersections
+    public bool IntersectsBox(Box box);
+    public bool ContainsPoint(Vector3 point);
+}
+```
+
+### Plane
+
+3D plane used in frustum culling.
+
+```csharp
+public struct Plane
+{
+    public double A { get; set; }  // Normal X
+    public double B { get; set; }  // Normal Y
+    public double C { get; set; }  // Normal Z
+    public double D { get; set; }  // Distance
+    
+    public Plane(double a, double b, double c, double d);
+    public Vector3 Normal { get; }
+    
+    public double DistanceToPoint(Vector3 point);
+    public bool IntersectsBox(Box box);
+}
+```
+
 ## CopcReader Methods
 
 ### Opening Files
@@ -218,6 +266,11 @@ public List<Node> GetNodesWithinBox(Box box, double resolution = 0);
 
 // Get nodes that intersect bounding box
 public List<Node> GetNodesIntersectBox(Box box, double resolution = 0);
+
+// Get nodes that intersect a view frustum (camera-based culling)
+public List<Node> GetNodesIntersectFrustum(Frustum frustum, double resolution = 0);
+public List<Node> GetNodesIntersectFrustum(double[] viewProjectionMatrix, double resolution = 0);
+public List<Node> GetNodesIntersectFrustum(float[] viewProjectionMatrix, double resolution = 0);
 
 // Get nodes at specific resolution
 public List<Node> GetNodesAtResolution(double resolution);
@@ -270,7 +323,7 @@ foreach (var group in byDepth)
 }
 ```
 
-### Spatial Query
+### Spatial Query - Bounding Box
 
 ```csharp
 // Define bounding box
@@ -291,6 +344,60 @@ foreach (var node in nodes)
     
     // Save to file for external processing
     File.WriteAllBytes($"node_{node.Key}.laz.chunk", compressed);
+}
+```
+
+### Spatial Query - Frustum (Camera View)
+
+```csharp
+// Get view-projection matrix from your camera/graphics system
+// Matrix should be in row-major order (16 elements: 4x4)
+double[] viewProjectionMatrix = GetCameraViewProjectionMatrix();
+
+// Query nodes visible from camera
+var visibleNodes = reader.GetNodesIntersectFrustum(viewProjectionMatrix);
+Console.WriteLine($"Found {visibleNodes.Count} visible nodes");
+
+// Optional: Query with resolution limit for LOD control
+double targetResolution = 0.1; // 10cm point spacing
+var lodNodes = reader.GetNodesIntersectFrustum(viewProjectionMatrix, targetResolution);
+Console.WriteLine($"Found {lodNodes.Count} nodes at {targetResolution}m resolution");
+
+// Process visible nodes
+foreach (var node in lodNodes)
+{
+    byte[] compressed = reader.GetPointDataCompressed(node);
+    var bounds = node.Key.GetBounds(reader.Config.LasHeader, reader.Config.CopcInfo);
+    
+    Console.WriteLine($"Node {node.Key}: {node.PointCount} points, bounds: {bounds}");
+    // Decompress and render points...
+}
+```
+
+### Advanced Frustum Usage
+
+```csharp
+// Create frustum from separate view and projection matrices
+double[] viewMatrix = camera.GetViewMatrix();
+double[] projectionMatrix = camera.GetProjectionMatrix();
+var frustum = Frustum.FromViewAndProjection(viewMatrix, projectionMatrix);
+
+// Reuse frustum for multiple queries
+var allResNodes = reader.GetNodesIntersectFrustum(frustum, resolution: 0);
+var highResNodes = reader.GetNodesIntersectFrustum(frustum, resolution: 0.05);
+
+// Test if a specific area is in view
+var testBox = new Box(100, 200, 50, 110, 210, 60);
+if (frustum.IntersectsBox(testBox))
+{
+    Console.WriteLine("Area is visible from camera");
+}
+
+// Test if a point is in frustum
+var testPoint = new Vector3(105, 205, 55);
+if (frustum.ContainsPoint(testPoint))
+{
+    Console.WriteLine("Point is visible from camera");
 }
 ```
 
@@ -434,9 +541,11 @@ catch (Exception ex)
 
 1. **Use `using` statements**: CopcReader implements IDisposable
 2. **Cache hierarchy**: Call `GetAllNodes()` once if you need multiple queries
-3. **Spatial filtering**: Use bounding box queries instead of loading all nodes
-4. **Resolution filtering**: Specify target resolution to limit nodes loaded
-5. **External tools**: For decompression, use PDAL or copclib
+3. **Spatial filtering**: Use bounding box or frustum queries instead of loading all nodes
+4. **Frustum culling**: For camera-based applications, use frustum queries to load only visible points
+5. **Resolution filtering**: Specify target resolution to limit nodes loaded and control LOD
+6. **Reuse frustums**: Create frustum objects once and reuse them for multiple queries
+7. **External tools**: For decompression, use PDAL or copclib
 
 ## Performance Tips
 

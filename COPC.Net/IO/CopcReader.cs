@@ -502,6 +502,65 @@ namespace Copc.IO
         }
 
         /// <summary>
+        /// Gets nodes that intersect with a view frustum.
+        /// This is useful for querying points visible from a camera perspective.
+        /// </summary>
+        /// <param name="frustum">The view frustum to test against</param>
+        /// <param name="resolution">Optional minimum resolution (point spacing). If > 0, only nodes with resolution less than or equal to this value are returned.</param>
+        /// <returns>List of nodes that intersect the frustum</returns>
+        public List<Node> GetNodesIntersectFrustum(Frustum frustum, double resolution = 0)
+        {
+            var allNodes = GetAllNodes();
+            var result = new List<Node>();
+
+            foreach (var node in allNodes)
+            {
+                var nodeBounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
+                
+                if (frustum.IntersectsBox(nodeBounds))
+                {
+                    // Check resolution if specified
+                    if (resolution > 0)
+                    {
+                        double nodeResolution = node.Key.GetResolution(Config.LasHeader, Config.CopcInfo);
+                        if (nodeResolution > resolution)
+                            continue;
+                    }
+
+                    result.Add(node);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Gets nodes that intersect with a view frustum, constructed from a view-projection matrix.
+        /// This is a convenience method that creates the frustum from the matrix and queries nodes.
+        /// </summary>
+        /// <param name="viewProjectionMatrix">The combined view-projection matrix as a 16-element array in row-major order</param>
+        /// <param name="resolution">Optional minimum resolution (point spacing). If > 0, only nodes with resolution less than or equal to this value are returned.</param>
+        /// <returns>List of nodes that intersect the frustum</returns>
+        public List<Node> GetNodesIntersectFrustum(double[] viewProjectionMatrix, double resolution = 0)
+        {
+            var frustum = Frustum.FromViewProjectionMatrix(viewProjectionMatrix);
+            return GetNodesIntersectFrustum(frustum, resolution);
+        }
+
+        /// <summary>
+        /// Gets nodes that intersect with a view frustum, constructed from a view-projection matrix.
+        /// This overload accepts float arrays for compatibility with graphics APIs.
+        /// </summary>
+        /// <param name="viewProjectionMatrix">The combined view-projection matrix as a 16-element float array in row-major order</param>
+        /// <param name="resolution">Optional minimum resolution (point spacing). If > 0, only nodes with resolution less than or equal to this value are returned.</param>
+        /// <returns>List of nodes that intersect the frustum</returns>
+        public List<Node> GetNodesIntersectFrustum(float[] viewProjectionMatrix, double resolution = 0)
+        {
+            var frustum = Frustum.FromViewProjectionMatrix(viewProjectionMatrix);
+            return GetNodesIntersectFrustum(frustum, resolution);
+        }
+
+        /// <summary>
         /// Gets the depth level that provides at least the requested resolution.
         /// </summary>
         public int GetDepthAtResolution(double resolution)
