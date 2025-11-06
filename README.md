@@ -2,6 +2,8 @@
 
 A .NET 8.0 library for reading and writing Cloud Optimized Point Cloud (COPC) files.
 
+This is vibe-coded off the [C++ implementation](https://github.com/RockRobotic/copc-lib).
+
 ## What is COPC?
 
 COPC (Cloud Optimized Point Cloud) is an LAZ 1.4 file format organized as a clustered octree for efficient streaming and random access of point cloud data. It enables applications to read only the portions of a file they need, making it ideal for cloud storage and web-based visualization.
