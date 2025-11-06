@@ -10,8 +10,10 @@ namespace Copc.LazPerf
     {
         private ArithmeticDecoder? _decoder;
         private Point10Decompressor? _point10Decompressor;
+        private Point14Decompressor? _point14Decompressor;
         private int _pointFormat;
         private int _pointSize;
+        private int _basePointSize;  // Size without extra bytes
         private bool _isOpen;
 
         public ChunkDecompressor()
@@ -47,20 +49,37 @@ namespace Copc.LazPerf
             switch (pointFormat)
             {
                 case 0:
-                    if (pointSize != 20)
-                        throw new ArgumentException($"Point format 0 should have size 20, got {pointSize}");
+                    _basePointSize = 20;
+                    if (pointSize != _basePointSize)
+                        throw new ArgumentException($"Point format 0 should have size {_basePointSize}, got {pointSize}");
                     _point10Decompressor = new Point10Decompressor(_decoder);
                     break;
                     
                 case 1:
                 case 2:
                 case 3:
-                    throw new NotImplementedException($"Point format {pointFormat} not yet implemented. Currently only format 0 is supported.");
+                    throw new NotImplementedException($"Point format {pointFormat} not yet implemented. Currently only formats 0 and 6-8 are supported.");
                     
                 case 6:
+                    _basePointSize = 30;
+                    if (pointSize < _basePointSize)
+                        throw new ArgumentException($"Point format 6 should have size >= {_basePointSize}, got {pointSize}");
+                    _point14Decompressor = new Point14Decompressor(_decoder);
+                    break;
+                    
                 case 7:
+                    _basePointSize = 36;
+                    if (pointSize < _basePointSize)
+                        throw new ArgumentException($"Point format 7 should have size >= {_basePointSize}, got {pointSize}");
+                    _point14Decompressor = new Point14Decompressor(_decoder);
+                    break;
+                    
                 case 8:
-                    throw new NotImplementedException($"Point format {pointFormat} not yet implemented. Currently only format 0 is supported.");
+                    _basePointSize = 38;
+                    if (pointSize < _basePointSize)
+                        throw new ArgumentException($"Point format 8 should have size >= {_basePointSize}, got {pointSize}");
+                    _point14Decompressor = new Point14Decompressor(_decoder);
+                    break;
                     
                 default:
                     throw new ArgumentException($"Unsupported point format: {pointFormat}");
@@ -81,16 +100,39 @@ namespace Copc.LazPerf
             if (_decoder == null)
                 throw new InvalidOperationException("Decoder not initialized");
 
+            byte[] baseData;
+            
             switch (_pointFormat)
             {
                 case 0:
                     if (_point10Decompressor == null)
                         throw new InvalidOperationException("Point10 decompressor not initialized");
-                    return _point10Decompressor.Decompress();
+                    baseData = _point10Decompressor.Decompress();
+                    break;
+                    
+                case 6:
+                case 7:
+                case 8:
+                    if (_point14Decompressor == null)
+                        throw new InvalidOperationException("Point14 decompressor not initialized");
+                    baseData = _point14Decompressor.Decompress();
+                    break;
                     
                 default:
                     throw new NotImplementedException($"Point format {_pointFormat} decompression not implemented");
             }
+            
+            // If point has extra bytes beyond the base format, pad with zeros
+            // TODO: Properly decompress extra bytes using byte14 field compressor
+            if (_pointSize > baseData.Length)
+            {
+                var fullData = new byte[_pointSize];
+                Array.Copy(baseData, 0, fullData, 0, baseData.Length);
+                // Extra bytes are left as zeros for now
+                return fullData;
+            }
+            
+            return baseData;
         }
 
         /// <summary>
@@ -147,6 +189,7 @@ namespace Copc.LazPerf
         {
             _decoder = null;
             _point10Decompressor = null;
+            _point14Decompressor = null;
             _isOpen = false;
         }
 
