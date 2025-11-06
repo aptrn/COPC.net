@@ -1,95 +1,195 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
-using LasZipNative = Kuoste.LasZipNetStandard.LasZip;
-using LasPointNative = Kuoste.LasZipNetStandard.LasPoint;
+using Copc.LazPerf;
 
 namespace Copc.IO
 {
     /// <summary>
-    /// Provides point decompression capabilities for COPC files using native LASzip library.
-    /// Note: This reads points sequentially from the file, not individual chunks from memory.
+    /// Provides point decompression capabilities for COPC files using LAZ-perf.
+    /// This allows efficient decompression of individual chunks from memory.
     /// </summary>
     public class LazDecompressor
     {
         /// <summary>
-        /// Decompresses all points from a COPC file.
-        /// Note: This reads all points sequentially. For large files, consider using maxPoints parameter.
+        /// Decompresses a chunk of compressed point data using LAZ-perf.
         /// </summary>
-        /// <param name="filePath">Path to the COPC file</param>
-        /// <param name="maxPoints">Maximum number of points to read (-1 for all)</param>
+        /// <param name="pointFormat">LAS point data record format</param>
+        /// <param name="pointSize">Size of each point record in bytes</param>
+        /// <param name="compressedData">Compressed chunk data</param>
+        /// <param name="pointCount">Number of points in the chunk</param>
+        /// <param name="header">LAS header with scale/offset information</param>
         /// <returns>Array of decompressed points</returns>
-        public static CopcPoint[] DecompressFromFile(string filePath, int maxPoints = -1)
+        public static CopcPoint[] DecompressChunk(int pointFormat, int pointSize, byte[] compressedData, int pointCount, LasHeader header)
         {
-            var lasZip = new LasZipNative(out _);
+            // Use lazperf to decompress the chunk
+            var decompressor = new ChunkDecompressor();
+            decompressor.Open(pointFormat, pointSize, compressedData);
+
+            var points = new CopcPoint[pointCount];
             
-            if (!lasZip.OpenReader(filePath))
+            for (int i = 0; i < pointCount; i++)
             {
-                throw new InvalidOperationException("Failed to open COPC file");
-            }
-            
-            try
-            {
-                var header = lasZip.GetReaderHeader();
-                ulong totalPoints = Math.Max(header.NumberOfPointRecords, header.ExtendedNumberOfPointRecords);
-                int pointsToRead = maxPoints < 0 ? (int)Math.Min(totalPoints, int.MaxValue) : maxPoints;
-                
-                var points = new CopcPoint[pointsToRead];
-                var lasPoint = new LasPointNative();
-                
-                for (int i = 0; i < pointsToRead; i++)
+                var pointData = decompressor.GetPoint();
+                CopcPoint point;
+
+                // Handle different point formats
+                switch (pointFormat)
                 {
-                    lasZip.ReadPoint(ref lasPoint);
+                    case 0:
+                        point = DecompressFormat0(pointData, header);
+                        break;
                     
-                    points[i] = new CopcPoint
-                    {
-                        X = lasPoint.X,
-                        Y = lasPoint.Y,
-                        Z = lasPoint.Z,
-                        Intensity = lasPoint.Intensity,
-                        ReturnNumber = (byte)lasPoint.ReturnNumber,
-                        NumberOfReturns = (byte)lasPoint.NumberOfReturns,
-                        Classification = (byte)lasPoint.Classification,
-                        ScanAngle = lasPoint.ScanAngleRank,
-                        UserData = (byte)lasPoint.UserData,
-                        PointSourceId = lasPoint.PointSourceId,
-                        GpsTime = lasPoint.GpsTime,
-                        Red = (ushort)lasPoint.Red,
-                        Green = (ushort)lasPoint.Green,
-                        Blue = (ushort)lasPoint.Blue
-                    };
+                    case 6:
+                        point = DecompressFormat6(pointData, header);
+                        break;
+                    
+                    case 7:
+                        point = DecompressFormat7(pointData, header);
+                        break;
+                    
+                    case 8:
+                        point = DecompressFormat8(pointData, header);
+                        break;
+                    
+                    default:
+                        throw new NotImplementedException($"Point format {pointFormat} decompression not implemented");
                 }
                 
-                return points;
+                points[i] = point;
             }
-            finally
+
+            decompressor.Close();
+            return points;
+        }
+
+        private static CopcPoint DecompressFormat0(byte[] pointData, LasHeader header)
+        {
+            var lasPoint = LasPoint10.Unpack(pointData, 0);
+            
+            return new CopcPoint
             {
-                lasZip.CloseReader();
-                lasZip.DestroyReader();
-            }
+                X = lasPoint.X * header.XScaleFactor + header.XOffset,
+                Y = lasPoint.Y * header.YScaleFactor + header.YOffset,
+                Z = lasPoint.Z * header.ZScaleFactor + header.ZOffset,
+                Intensity = lasPoint.Intensity,
+                ReturnNumber = lasPoint.ReturnNumber,
+                NumberOfReturns = lasPoint.NumberOfReturns,
+                Classification = lasPoint.Classification,
+                ScanAngle = lasPoint.ScanAngleRank,
+                UserData = lasPoint.UserData,
+                PointSourceId = lasPoint.PointSourceId,
+                GpsTime = null,
+                Red = null,
+                Green = null,
+                Blue = null
+            };
+        }
+
+        private static CopcPoint DecompressFormat6(byte[] pointData, LasHeader header)
+        {
+            var lasPoint = LasPoint14.Unpack(pointData, 0);
+            
+            return new CopcPoint
+            {
+                X = lasPoint.X * header.XScaleFactor + header.XOffset,
+                Y = lasPoint.Y * header.YScaleFactor + header.YOffset,
+                Z = lasPoint.Z * header.ZScaleFactor + header.ZOffset,
+                Intensity = lasPoint.Intensity,
+                ReturnNumber = lasPoint.ReturnNumber,
+                NumberOfReturns = lasPoint.NumberOfReturns,
+                Classification = lasPoint.Classification,
+                ScanAngle = lasPoint.ScanAngle * 0.006, // Convert to degrees (scan angle is in 0.006 degree units)
+                UserData = lasPoint.UserData,
+                PointSourceId = lasPoint.PointSourceId,
+                GpsTime = lasPoint.GpsTime,
+                ScanDirectionFlag = lasPoint.ScanDirectionFlag,
+                EdgeOfFlightLine = lasPoint.EdgeOfFlightLine,
+                Red = null,
+                Green = null,
+                Blue = null
+            };
+        }
+
+        private static CopcPoint DecompressFormat7(byte[] pointData, LasHeader header)
+        {
+            var lasPoint = LasPoint14.Unpack(pointData, 0);
+            var rgb = Rgb14.Unpack(pointData, 30); // RGB starts at byte 30
+            
+            return new CopcPoint
+            {
+                X = lasPoint.X * header.XScaleFactor + header.XOffset,
+                Y = lasPoint.Y * header.YScaleFactor + header.YOffset,
+                Z = lasPoint.Z * header.ZScaleFactor + header.ZOffset,
+                Intensity = lasPoint.Intensity,
+                ReturnNumber = lasPoint.ReturnNumber,
+                NumberOfReturns = lasPoint.NumberOfReturns,
+                Classification = lasPoint.Classification,
+                ScanAngle = lasPoint.ScanAngle * 0.006,
+                UserData = lasPoint.UserData,
+                PointSourceId = lasPoint.PointSourceId,
+                GpsTime = lasPoint.GpsTime,
+                ScanDirectionFlag = lasPoint.ScanDirectionFlag,
+                EdgeOfFlightLine = lasPoint.EdgeOfFlightLine,
+                Red = rgb.Red,
+                Green = rgb.Green,
+                Blue = rgb.Blue
+            };
+        }
+
+        private static CopcPoint DecompressFormat8(byte[] pointData, LasHeader header)
+        {
+            var lasPoint = LasPoint14.Unpack(pointData, 0);
+            var rgb = Rgb14.Unpack(pointData, 30);
+            var nir = Nir14.Unpack(pointData, 36); // NIR starts at byte 36
+            
+            return new CopcPoint
+            {
+                X = lasPoint.X * header.XScaleFactor + header.XOffset,
+                Y = lasPoint.Y * header.YScaleFactor + header.YOffset,
+                Z = lasPoint.Z * header.ZScaleFactor + header.ZOffset,
+                Intensity = lasPoint.Intensity,
+                ReturnNumber = lasPoint.ReturnNumber,
+                NumberOfReturns = lasPoint.NumberOfReturns,
+                Classification = lasPoint.Classification,
+                ScanAngle = lasPoint.ScanAngle * 0.006,
+                UserData = lasPoint.UserData,
+                PointSourceId = lasPoint.PointSourceId,
+                GpsTime = lasPoint.GpsTime,
+                ScanDirectionFlag = lasPoint.ScanDirectionFlag,
+                EdgeOfFlightLine = lasPoint.EdgeOfFlightLine,
+                Red = rgb.Red,
+                Green = rgb.Green,
+                Blue = rgb.Blue,
+                Nir = nir.Value
+            };
         }
 
         /// <summary>
-        /// Direct chunk decompression is not supported.
-        /// The native library reads points sequentially from the file.
-        /// Use DecompressFromFile() to read points from the entire COPC file.
+        /// Decompresses raw bytes from a chunk (without converting to CopcPoint).
         /// </summary>
-        public static byte[] DecompressBytes(byte[] compressedData, LasHeader header, int pointCount = -1)
+        /// <param name="pointFormat">LAS point data record format</param>
+        /// <param name="pointSize">Size of each point record in bytes</param>
+        /// <param name="compressedData">Compressed chunk data</param>
+        /// <param name="pointCount">Number of points in the chunk</param>
+        /// <returns>Array of raw point data bytes</returns>
+        public static byte[][] DecompressBytes(int pointFormat, int pointSize, byte[] compressedData, int pointCount)
         {
-            throw new NotSupportedException(
-                "Direct chunk decompression from memory is not supported by the native LASzip library. " +
-                "Use LazDecompressor.DecompressFromFile(filePath, maxPoints) to read points from the file.");
+            return ChunkDecompressor.DecompressChunk(pointFormat, pointSize, compressedData, pointCount);
         }
 
         /// <summary>
-        /// Decompresses points from file and returns them as an array of Point objects.
-        /// This is the same as DecompressFromFile().
+        /// Decompresses raw bytes from a chunk into a flat array (without converting to CopcPoint).
         /// </summary>
-        public static CopcPoint[] DecompressPoints(string filePath, int maxPoints = -1)
+        /// <param name="pointFormat">LAS point data record format</param>
+        /// <param name="pointSize">Size of each point record in bytes</param>
+        /// <param name="compressedData">Compressed chunk data</param>
+        /// <param name="pointCount">Number of points in the chunk</param>
+        /// <returns>Flat array of raw point data bytes</returns>
+        public static byte[] DecompressBytesFlat(int pointFormat, int pointSize, byte[] compressedData, int pointCount)
         {
-            return DecompressFromFile(filePath, maxPoints);
+            return ChunkDecompressor.DecompressChunkFlat(pointFormat, pointSize, compressedData, pointCount);
         }
-
     }
 
     /// <summary>

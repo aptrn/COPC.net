@@ -468,18 +468,38 @@ namespace Copc.IO
         }
 
         /// <summary>
-        /// Decompresses all points from the COPC file.
-        /// Note: This reads points sequentially from the entire file, not individual node chunks.
-        /// For selective reading, use spatial queries first, then call this method.
+        /// Decompresses points from a specific node using lazperf.
+        /// This efficiently decompresses only the data for the requested node.
         /// </summary>
-        /// <param name="maxPoints">Maximum number of points to read (-1 for all)</param>
+        /// <param name="node">The node to decompress</param>
         /// <returns>Array of decompressed points</returns>
-        public CopcPoint[] GetAllPoints(int maxPoints = -1)
+        public CopcPoint[] GetPointsFromNode(Node node)
         {
-            if (filePath == null)
-                throw new InvalidOperationException("GetAllPoints requires file path. Open reader with file path instead of stream.");
-            
-            return LazDecompressor.DecompressFromFile(filePath, maxPoints);
+            var compressedData = GetPointDataCompressed(node);
+            return LazDecompressor.DecompressChunk(
+                Config.LasHeader.BasePointFormat,
+                Config.LasHeader.PointDataRecordLength,
+                compressedData,
+                node.PointCount,
+                Config.LasHeader
+            );
+        }
+
+        /// <summary>
+        /// Decompresses points from multiple nodes.
+        /// This efficiently decompresses only the data for the requested nodes.
+        /// </summary>
+        /// <param name="nodes">The nodes to decompress</param>
+        /// <returns>Array of decompressed points from all nodes</returns>
+        public CopcPoint[] GetPointsFromNodes(IEnumerable<Node> nodes)
+        {
+            var allPoints = new List<CopcPoint>();
+            foreach (var node in nodes)
+            {
+                var points = GetPointsFromNode(node);
+                allPoints.AddRange(points);
+            }
+            return allPoints.ToArray();
         }
 
         /// <summary>

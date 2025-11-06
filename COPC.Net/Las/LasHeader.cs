@@ -38,6 +38,17 @@ namespace Copc
         public byte PointDataFormat { get; set; }
         public ushort PointDataRecordLength { get; set; }
         
+        /// <summary>
+        /// Gets the base point format (without compression bit).
+        /// In LAZ files, bit 7 indicates compression, so we mask it off.
+        /// </summary>
+        public byte BasePointFormat => (byte)(PointDataFormat & 0x7F);
+        
+        /// <summary>
+        /// Gets whether the point data is compressed (bit 7 set).
+        /// </summary>
+        public bool IsCompressed => (PointDataFormat & 0x80) != 0;
+        
         // Legacy point counts (LAS 1.0-1.3)
         public uint NumberOfPointRecords { get; set; }
         public uint[] NumberOfPointsByReturn { get; set; } = new uint[5];
