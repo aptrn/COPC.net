@@ -1,0 +1,3 @@
+[submodule "repos/repos"]
+	path = repos/repos
+	url = https://github.com/Kuoste/LasZipNetStandard.git
