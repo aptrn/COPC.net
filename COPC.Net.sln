@@ -7,7 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "COPC.Net", "COPC.Net\COPC.N
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Examples", "Examples\Examples.csproj", "{B8BF9E88-4E44-4F15-A6CF-9E7A7A8E8E8E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LasZip.Net", "repos\LasZip.Net\LasZip.Net\LasZip.Net.csproj", "{C3D7F8E9-5B5B-4F8E-A7A7-9E7A7A8E8E8E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LasZip.Net", "repos\LasZipNetStandard\LasZipNetStandard\LasZipNetStandard.csproj", "{C3D7F8E9-5B5B-4F8E-A7A7-9E7A7A8E8E8E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
