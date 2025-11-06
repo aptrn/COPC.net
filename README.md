@@ -13,7 +13,11 @@ COPC (Cloud Optimized Point Cloud) is an LAZ 1.4 file format organized as a clus
 - Read and write COPC files (`.copc.laz`)
 - Efficient octree-based spatial indexing
 - Stream point data from local files or remote sources
-- Query points by spatial extent (bounding box)
+- Multiple spatial query types:
+  - **Bounding box queries** - Query points within axis-aligned boxes
+  - **Frustum queries** - Query points visible from camera view (see [README_Frustum.md](README_Frustum.md))
+  - **Radius queries** - Query points within distance from a point (omnidirectional) (see [README_Radius.md](README_Radius.md))
+- Level-of-Detail (LOD) support with resolution filtering
 - Access point cloud hierarchy and metadata
 
 ## Requirements
@@ -27,23 +31,40 @@ Add a reference to `COPC.Net.csproj` in your project, and ensure LasZipNetStanda
 ## Basic Usage
 
 ```csharp
-using COPC.Net.IO;
-using COPC.Net.Geometry;
+using Copc.IO;
+using Copc.Geometry;
 
 // Read COPC file
-using var reader = new CopcReader("example.copc.laz");
+using var reader = CopcReader.Open("example.copc.laz");
 
 // Get file info
-var info = reader.CopcInfo;
-var bounds = reader.CopcExtents;
+var header = reader.Config.LasHeader;
+var info = reader.Config.CopcInfo;
 
 // Query points within a bounding box
-var queryBox = new Box(
-    new Vector3(minX, minY, minZ),
-    new Vector3(maxX, maxY, maxZ)
-);
+var box = new Box(minX, minY, minZ, maxX, maxY, maxZ);
+var nodesInBox = reader.GetNodesIntersectBox(box);
 
-var points = reader.GetPointsInBox(queryBox);
+// Query points within radius from a position (omnidirectional)
+var center = new Vector3(500, 500, 50);
+var nodesInRadius = reader.GetNodesWithinRadius(center, radius: 100);
+
+// Query points visible from camera frustum
+var frustum = Frustum.FromViewProjectionMatrix(viewProjectionMatrix);
+var visibleNodes = reader.GetNodesIntersectFrustum(frustum);
+
+// Process nodes
+foreach (var node in nodesInRadius)
+{
+    byte[] compressedData = reader.GetPointDataCompressed(node);
+    // Decompress and process points...
+}
 ```
 
 See the `Examples` project for more detailed usage examples.
+
+## Documentation
+
+- [README_Radius.md](README_Radius.md) - Radius query documentation and examples
+- [README_Frustum.md](README_Frustum.md) - Frustum query documentation and examples
+- [API.md](COPC.Net/API.md) - Complete API reference

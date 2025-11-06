@@ -23,12 +23,48 @@ namespace Copc.Geometry
         /// </summary>
         public static Vector3 DefaultScale() => new Vector3(0.01, 0.01, 0.01);
 
-        /// <summary>
-        /// Default offset for LAS/COPC files (0, 0, 0).
-        /// </summary>
-        public static Vector3 DefaultOffset() => new Vector3(0, 0, 0);
+    /// <summary>
+    /// Default offset for LAS/COPC files (0, 0, 0).
+    /// </summary>
+    public static Vector3 DefaultOffset() => new Vector3(0, 0, 0);
 
-        public bool Equals(Vector3 other)
+    /// <summary>
+    /// Calculates the squared distance between this vector and another.
+    /// Using squared distance avoids expensive square root operations.
+    /// </summary>
+    public double DistanceSquaredTo(Vector3 other)
+    {
+        double dx = X - other.X;
+        double dy = Y - other.Y;
+        double dz = Z - other.Z;
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    /// <summary>
+    /// Calculates the distance between this vector and another.
+    /// </summary>
+    public double DistanceTo(Vector3 other)
+    {
+        return Math.Sqrt(DistanceSquaredTo(other));
+    }
+
+    /// <summary>
+    /// Returns the length (magnitude) of this vector.
+    /// </summary>
+    public double Length()
+    {
+        return Math.Sqrt(X * X + Y * Y + Z * Z);
+    }
+
+    /// <summary>
+    /// Returns the squared length of this vector.
+    /// </summary>
+    public double LengthSquared()
+    {
+        return X * X + Y * Y + Z * Z;
+    }
+
+    public bool Equals(Vector3 other)
         {
             return X == other.X && Y == other.Y && Z == other.Z;
         }

@@ -90,15 +90,31 @@ namespace Copc.Geometry
                      MaxZ < other.MinZ || MinZ > other.MaxZ);
         }
 
-        /// <summary>
-        /// Tests if this box crosses another box (intersects but not contained).
-        /// </summary>
-        public bool Crosses(Box other)
-        {
-            return Intersects(other) && !Within(other) && !Contains(other);
-        }
+    /// <summary>
+    /// Tests if this box crosses another box (intersects but not contained).
+    /// </summary>
+    public bool Crosses(Box other)
+    {
+        return Intersects(other) && !Within(other) && !Contains(other);
+    }
 
-        public bool Equals(Box other)
+    /// <summary>
+    /// Tests if this box intersects with a sphere.
+    /// </summary>
+    public bool IntersectsSphere(Sphere sphere)
+    {
+        return sphere.IntersectsBox(this);
+    }
+
+    /// <summary>
+    /// Tests if this box is completely within a sphere.
+    /// </summary>
+    public bool WithinSphere(Sphere sphere)
+    {
+        return sphere.Contains(this);
+    }
+
+    public bool Equals(Box other)
         {
             return MinX == other.MinX && MinY == other.MinY && MinZ == other.MinZ &&
                    MaxX == other.MaxX && MaxY == other.MaxY && MaxZ == other.MaxZ;

@@ -417,6 +417,45 @@ namespace Copc.IO
         }
 
         /// <summary>
+        /// Gets all nodes at a specific depth/layer in the hierarchy and returns their bounding boxes.
+        /// </summary>
+        /// <param name="layer">The depth/layer level (0 = root, 1 = first level children, etc.)</param>
+        /// <returns>A dictionary mapping VoxelKey to Box (bounding box) for each node at the specified layer</returns>
+        public Dictionary<VoxelKey, Box> GetBoundingBoxesAtLayer(int layer)
+        {
+            if (layer < 0)
+                throw new ArgumentOutOfRangeException(nameof(layer), "Layer must be non-negative");
+
+            var allNodes = GetAllNodes();
+            var result = new Dictionary<VoxelKey, Box>();
+
+            foreach (var node in allNodes)
+            {
+                if (node.Key.D == layer)
+                {
+                    var bounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
+                    result[node.Key] = bounds;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Gets all nodes at a specific depth/layer in the hierarchy.
+        /// </summary>
+        /// <param name="layer">The depth/layer level (0 = root, 1 = first level children, etc.)</param>
+        /// <returns>A list of nodes at the specified layer</returns>
+        public List<Node> GetNodesAtLayer(int layer)
+        {
+            if (layer < 0)
+                throw new ArgumentOutOfRangeException(nameof(layer), "Layer must be non-negative");
+
+            var allNodes = GetAllNodes();
+            return allNodes.Where(node => node.Key.D == layer).ToList();
+        }
+
+        /// <summary>
         /// Reads compressed point data for a node.
         /// </summary>
         public byte[] GetPointDataCompressed(Node node)
@@ -558,6 +597,70 @@ namespace Copc.IO
         {
             var frustum = Frustum.FromViewProjectionMatrix(viewProjectionMatrix);
             return GetNodesIntersectFrustum(frustum, resolution);
+        }
+
+        /// <summary>
+        /// Gets nodes within a spherical radius from a center point.
+        /// This performs an omnidirectional spatial query to retrieve all nodes that intersect
+        /// with a sphere defined by a center position and radius.
+        /// </summary>
+        /// <param name="sphere">The sphere to test against</param>
+        /// <param name="resolution">Optional minimum resolution (point spacing). If > 0, only nodes with resolution less than or equal to this value are returned.</param>
+        /// <returns>List of nodes that intersect the sphere</returns>
+        public List<Node> GetNodesWithinRadius(Sphere sphere, double resolution = 0)
+        {
+            var allNodes = GetAllNodes();
+            var result = new List<Node>();
+
+            foreach (var node in allNodes)
+            {
+                var nodeBounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
+                
+                if (sphere.IntersectsBox(nodeBounds))
+                {
+                    // Check resolution if specified
+                    if (resolution > 0)
+                    {
+                        double nodeResolution = node.Key.GetResolution(Config.LasHeader, Config.CopcInfo);
+                        if (nodeResolution > resolution)
+                            continue;
+                    }
+
+                    result.Add(node);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Gets nodes within a spherical radius from a center point.
+        /// This is a convenience overload that constructs the sphere from center coordinates and radius.
+        /// </summary>
+        /// <param name="centerX">X coordinate of the sphere center</param>
+        /// <param name="centerY">Y coordinate of the sphere center</param>
+        /// <param name="centerZ">Z coordinate of the sphere center</param>
+        /// <param name="radius">Radius of the sphere</param>
+        /// <param name="resolution">Optional minimum resolution (point spacing). If > 0, only nodes with resolution less than or equal to this value are returned.</param>
+        /// <returns>List of nodes that intersect the sphere</returns>
+        public List<Node> GetNodesWithinRadius(double centerX, double centerY, double centerZ, double radius, double resolution = 0)
+        {
+            var sphere = new Sphere(centerX, centerY, centerZ, radius);
+            return GetNodesWithinRadius(sphere, resolution);
+        }
+
+        /// <summary>
+        /// Gets nodes within a spherical radius from a center point.
+        /// This is a convenience overload that constructs the sphere from a Vector3 center and radius.
+        /// </summary>
+        /// <param name="center">The center point of the sphere</param>
+        /// <param name="radius">Radius of the sphere</param>
+        /// <param name="resolution">Optional minimum resolution (point spacing). If > 0, only nodes with resolution less than or equal to this value are returned.</param>
+        /// <returns>List of nodes that intersect the sphere</returns>
+        public List<Node> GetNodesWithinRadius(Vector3 center, double radius, double resolution = 0)
+        {
+            var sphere = new Sphere(center, radius);
+            return GetNodesWithinRadius(sphere, resolution);
         }
 
         /// <summary>
