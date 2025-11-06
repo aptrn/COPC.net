@@ -45,7 +45,3 @@ var points = reader.GetPointsInBox(queryBox);
 ```
 
 See the `Examples` project for more detailed usage examples.
-
-## License
-
-Apache-2.0
