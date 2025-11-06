@@ -16,7 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\repos\LasZip.Net\LasZip.Net\LasZip.Net.csproj" />
+    <ProjectReference Include="..\repos\LasZipNetStandard\LasZipNetStandard\LasZipNetStandard.csproj" />
   </ItemGroup>
 
 </Project>

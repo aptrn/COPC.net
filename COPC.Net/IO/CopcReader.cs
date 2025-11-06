@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using LasZip;
 using Copc.Geometry;
 using Copc.Hierarchy;
 using Copc.Utils;
@@ -430,17 +429,18 @@ namespace Copc.IO
         }
 
         /// <summary>
-        /// Reads and decompresses point data for a node.
-        /// Returns the raw uncompressed point data.
-        /// Note: This is a simplified implementation that returns compressed data.
-        /// For full decompression, you'll need to use LasZipDll directly with file paths.
+        /// Decompresses all points from the COPC file.
+        /// Note: This reads points sequentially from the entire file, not individual node chunks.
+        /// For selective reading, use spatial queries first, then call this method.
         /// </summary>
-        public byte[] GetPointData(Node node)
+        /// <param name="maxPoints">Maximum number of points to read (-1 for all)</param>
+        /// <returns>Array of decompressed points</returns>
+        public CopcPoint[] GetAllPoints(int maxPoints = -1)
         {
-            // For now, return compressed data
-            // Full LAZ decompression requires LasZipDll which works with file paths
-            // Users can decompress using LasZipDll separately if needed
-            return GetPointDataCompressed(node);
+            if (filePath == null)
+                throw new InvalidOperationException("GetAllPoints requires file path. Open reader with file path instead of stream.");
+            
+            return LazDecompressor.DecompressFromFile(filePath, maxPoints);
         }
 
         /// <summary>

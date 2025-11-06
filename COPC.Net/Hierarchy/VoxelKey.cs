@@ -148,7 +148,7 @@ namespace Copc.Hierarchy
         /// <summary>
         /// Calculates the bounding box for this voxel given header information.
         /// </summary>
-        public Box GetBounds(LasZip.LasHeader header, CopcInfo copcInfo)
+        public Box GetBounds(LasHeader header, CopcInfo copcInfo)
         {
             double span = GetSpanAtDepth(D, header);
             
@@ -168,7 +168,7 @@ namespace Copc.Hierarchy
         /// <summary>
         /// Returns the span (size) of a voxel at the given depth.
         /// </summary>
-        public static double GetSpanAtDepth(int depth, LasZip.LasHeader header)
+        public static double GetSpanAtDepth(int depth, LasHeader header)
         {
             double cubeSize = Math.Max(
                 Math.Max(header.MaxX - header.MinX, header.MaxY - header.MinY),
@@ -181,7 +181,7 @@ namespace Copc.Hierarchy
         /// <summary>
         /// Returns the resolution (point spacing) at this depth level.
         /// </summary>
-        public double GetResolution(LasZip.LasHeader header, CopcInfo copcInfo)
+        public double GetResolution(LasHeader header, CopcInfo copcInfo)
         {
             return GetResolutionAtDepth(D, header, copcInfo);
         }
@@ -189,7 +189,7 @@ namespace Copc.Hierarchy
         /// <summary>
         /// Returns the resolution at a given depth level.
         /// </summary>
-        public static double GetResolutionAtDepth(int depth, LasZip.LasHeader header, CopcInfo copcInfo)
+        public static double GetResolutionAtDepth(int depth, LasHeader header, CopcInfo copcInfo)
         {
             return copcInfo.Spacing / (1 << depth); // spacing / 2^depth
         }
