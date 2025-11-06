@@ -15,9 +15,5 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\repos\LasZipNetStandard\LasZipNetStandard\LasZipNetStandard.csproj" />
-  </ItemGroup>
-
 </Project>
 

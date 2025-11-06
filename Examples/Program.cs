@@ -192,6 +192,26 @@ namespace Copc.Examples
                         RadiusQueryExample.CompareBoxVsRadiusQuery(args[1]);
                         break;
 
+                    case "lazperf-test":
+                        // lazperf-test <file>
+                        if (args.Length < 2)
+                        {
+                            Console.WriteLine("Usage: Examples lazperf-test <copc-file>");
+                            return;
+                        }
+                        LazPerfNodeTest.Run(args[1]);
+                        break;
+
+                    case "chunk-decompress":
+                        // chunk-decompress <file>
+                        if (args.Length < 2)
+                        {
+                            Console.WriteLine("Usage: Examples chunk-decompress <copc-file>");
+                            return;
+                        }
+                        ChunkDecompressionExample.Run(args[1]);
+                        break;
+
                     default:
                         Console.WriteLine($"Unknown command: {command}");
                         PrintUsage();
@@ -220,6 +240,8 @@ namespace Copc.Examples
             Console.WriteLine("  Examples layer-compare <copc-file> <layer1> <layer2> ... <layerN>");
             Console.WriteLine("  Examples radius <copc-file> <centerX> <centerY> <centerZ> <radius> [resolution]");
             Console.WriteLine("  Examples radius-compare <copc-file> <centerX> <centerY> <centerZ> <radius>");
+            Console.WriteLine("  Examples lazperf-test <copc-file>");
+            Console.WriteLine("  Examples chunk-decompress <copc-file>");
             Console.WriteLine("\nExamples:");
             Console.WriteLine("  Examples random data.copc.laz 5");
             Console.WriteLine("  Examples bbox-lod data.copc.laz 5 -10 -10 0 10 10 50");
@@ -234,6 +256,8 @@ namespace Copc.Examples
             Console.WriteLine("  Examples radius data.copc.laz 500 500 50 100");
             Console.WriteLine("  Examples radius data.copc.laz 500 500 50 100 0.1");
             Console.WriteLine("  Examples radius-compare data.copc.laz 500 500 50 100");
+            Console.WriteLine("  Examples lazperf-test data.copc.laz");
+            Console.WriteLine("  Examples chunk-decompress data.copc.laz");
             Console.WriteLine("\nCommands:");
             Console.WriteLine("  random          - Pick a random bounding box at specified LOD and print points");
             Console.WriteLine("  bbox-lod        - Query specific bounding box at specific LOD");
@@ -245,8 +269,10 @@ namespace Copc.Examples
             Console.WriteLine("  frustum-test    - Run frustum functionality tests");
             Console.WriteLine("  layer-bbox      - Get bounding boxes for all nodes at a specific layer");
             Console.WriteLine("  layer-compare   - Compare node statistics across multiple layers");
-            Console.WriteLine("  radius          - Query nodes within a spherical radius from a point (NEW!)");
-            Console.WriteLine("  radius-compare  - Compare box vs radius query efficiency (NEW!)");
+            Console.WriteLine("  radius          - Query nodes within a spherical radius from a point");
+            Console.WriteLine("  radius-compare  - Compare box vs radius query efficiency");
+            Console.WriteLine("  lazperf-test    - Test lazperf decompression on root node and print XYZ coords");
+            Console.WriteLine("  chunk-decompress - Comprehensive chunk decompression examples");
         }
 
         static void RandomBoundingBoxExample(string copcFilePath, int targetLod)
@@ -345,34 +371,16 @@ namespace Copc.Examples
             long totalPointsInNodes = matchingNodes.Sum(n => (long)n.PointCount);
             Console.WriteLine($"Total points in matching nodes: {totalPointsInNodes:N0}\n");
 
-            // Decompress points from file using LasZipNetStandard
+            // Decompress points from relevant nodes using LAZ-perf
             Console.WriteLine("=== Decompressing Points ===");
-            Console.WriteLine("Using LasZipNetStandard to decompress points from file...\n");
+            Console.WriteLine("Using LAZ-perf to decompress only relevant node chunks...\n");
 
-            // Read enough points to cover the nodes (estimate: read more than needed)
-            // Note: LasZipNetStandard reads sequentially, so we read many more points to find ones in our bbox
-            // For small files, read a larger percentage; for large files, limit to reasonable amount
+            // Get points from matching nodes only (much more efficient!)
             long totalPoints = (long)header.ExtendedNumberOfPointRecords;
-            int pointsToRead;
+            Console.WriteLine($"Decompressing {matchingNodes.Count} nodes ({totalPointsInNodes:N0} points) from file (total: {totalPoints:N0})...");
             
-            if (totalPoints <= 1000000) // Files <= 1M points
-            {
-                pointsToRead = (int)totalPoints; // Read all points
-            }
-            else if (totalPoints <= 10000000) // Files <= 10M points
-            {
-                pointsToRead = Math.Min((int)(totalPointsInNodes * 100), (int)totalPoints / 2); // Read up to 50%
-            }
-            else // Large files > 10M points
-            {
-                pointsToRead = Math.Min((int)(totalPointsInNodes * 50), 5000000); // Read up to 5M points
-            }
-            
-            pointsToRead = Math.Max(pointsToRead, 50000); // Read at least 50k points
-            Console.WriteLine($"Reading {pointsToRead:N0} points from file (total: {totalPoints:N0})...");
-            var allPoints = reader.GetAllPoints(pointsToRead);
-            
-            Console.WriteLine($"Decompressed {allPoints.Length:N0} points from file");
+            var allPoints = reader.GetPointsFromNodes(matchingNodes);
+            Console.WriteLine($"Decompressed {allPoints.Length:N0} points from {matchingNodes.Count} nodes");
 
             // Filter points to those within the bounding box
             var pointsInBox = allPoints.Where(p => 
@@ -488,7 +496,7 @@ namespace Copc.Examples
             }
 
             // Decompress and filter points
-            QueryAndPrintPoints(reader, header, bbox, totalPointsInNodes);
+            QueryAndPrintPoints(reader, header, bbox, totalPointsInNodes, matchingNodes);
         }
 
         static void BoundingBoxWithResolutionExample(string copcFilePath, double targetResolution,
@@ -561,7 +569,7 @@ namespace Copc.Examples
             }
 
             // Decompress and filter points
-            QueryAndPrintPoints(reader, header, bbox, totalPointsInNodes);
+            QueryAndPrintPoints(reader, header, bbox, totalPointsInNodes, matchingNodes);
         }
 
         static void BoundingBoxInfoExample(string copcFilePath,
@@ -663,33 +671,17 @@ namespace Copc.Examples
             Console.WriteLine("✅ Complete!");
         }
 
-        static void QueryAndPrintPoints(IO.CopcReader reader, Copc.LasHeader header, Box bbox, long totalPointsInNodes)
+        static void QueryAndPrintPoints(IO.CopcReader reader, Copc.LasHeader header, Box bbox, long totalPointsInNodes, List<Hierarchy.Node> matchingNodes)
         {
             Console.WriteLine("\n=== Decompressing Points ===");
-            Console.WriteLine("Using LasZipNetStandard to decompress points from file...\n");
+            Console.WriteLine("Using LAZ-perf to decompress only relevant node chunks...\n");
 
-            // Calculate how many points to read
+            // Decompress only matching nodes using LAZ-perf
             long totalPoints = (long)header.ExtendedNumberOfPointRecords;
-            int pointsToRead;
-
-            if (totalPoints <= 1000000)
-            {
-                pointsToRead = (int)totalPoints;
-            }
-            else if (totalPoints <= 10000000)
-            {
-                pointsToRead = Math.Min((int)(totalPointsInNodes * 100), (int)totalPoints / 2);
-            }
-            else
-            {
-                pointsToRead = Math.Min((int)(totalPointsInNodes * 50), 5000000);
-            }
-
-            pointsToRead = Math.Max(pointsToRead, 50000);
-            Console.WriteLine($"Reading {pointsToRead:N0} points from file (total: {totalPoints:N0})...");
-            var allPoints = reader.GetAllPoints(pointsToRead);
-
-            Console.WriteLine($"Decompressed {allPoints.Length:N0} points from file");
+            Console.WriteLine($"Decompressing {matchingNodes.Count} nodes ({totalPointsInNodes:N0} points) from file (total: {totalPoints:N0})...");
+            
+            var allPoints = reader.GetPointsFromNodes(matchingNodes);
+            Console.WriteLine($"Decompressed {allPoints.Length:N0} points from {matchingNodes.Count} nodes");
 
             // Filter points to bounding box
             var pointsInBox = allPoints.Where(p =>
@@ -909,9 +901,8 @@ namespace Copc.Examples
             Console.WriteLine("=== Decompressing Points (from main file for demo) ===");
             var decompressSw = System.Diagnostics.Stopwatch.StartNew();
             
-            // Read only as many points as we need for the matching nodes
-            int pointsToRead = Math.Min((int)totalPointsInNodes * 2, (int)header.ExtendedNumberOfPointRecords);
-            var allPoints = reader.GetAllPoints(pointsToRead);
+            // Decompress only the relevant nodes using LAZ-perf
+            var allPoints = reader.GetPointsFromNodes(matchingNodes);
             
             decompressSw.Stop();
 
@@ -1108,9 +1099,8 @@ namespace Copc.Examples
             Console.WriteLine("\n=== Decompressing Visible Points (from main file for demo) ===");
             var decompressSw = System.Diagnostics.Stopwatch.StartNew();
             
-            // Read points for demo
-            int pointsToRead = Math.Min((int)totalPointsInNodes * 2, (int)header.ExtendedNumberOfPointRecords);
-            var allPoints = reader.GetAllPoints(pointsToRead);
+            // Decompress only the relevant visible nodes using LAZ-perf
+            var allPoints = reader.GetPointsFromNodes(visibleNodes);
             
             decompressSw.Stop();
 
