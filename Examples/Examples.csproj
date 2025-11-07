@@ -11,5 +11,9 @@
     <ProjectReference Include="..\COPC.Net\COPC.Net.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Stride.Core.Mathematics" Version="4.2.1.2485" />
+  </ItemGroup>
+
 </Project>
 
