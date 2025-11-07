@@ -80,6 +80,30 @@ namespace Copc.Examples
             var frustumNodes = reader.TraverseNodes(frustumOptions);
             PrintNodeSummary(reader, frustumNodes);
 
+            // 5) Custom: Frustum spatial cull + resolution by distance from camera (frustum origin)
+            Console.WriteLine("--- Custom: Frustum + Camera Distance Adaptive Resolution ---");
+            // Pick a camera position in front of the frustum box along -Z
+            var camera = new Vector3(center.X, center.Y, frustumBox.MinZ - (frustumBox.MaxZ - frustumBox.MinZ) * 0.2);
+            double camSlope = info.Spacing * 0.01;      // spacing grows with distance
+            double camMinRes = info.Spacing / 8.0;       // clamp minimum resolution near camera
+
+            var frustumCameraAdaptive = new TraversalOptions
+            {
+                SpatialPredicate = ctx => testFrustum.IntersectsBox(ctx.Bounds),
+                DesiredResolution = ctx =>
+                {
+                    var c = ctx.Bounds.Center;
+                    double dx = c.X - camera.X;
+                    double dy = c.Y - camera.Y;
+                    double dz = c.Z - camera.Z;
+                    double dist = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                    return Math.Max(camMinRes, camSlope * dist);
+                },
+                ContinueAfterAccept = true
+            };
+            var frustumCameraNodes = reader.TraverseNodes(frustumCameraAdaptive);
+            PrintNodeSummary(reader, frustumCameraNodes);
+
             // Custom delegate behaviors
             // A) Vertical slab selector: accept nodes within upper half Z slab (no resolution filter)
             Console.WriteLine("--- Custom: Upper Z Slab (spatial only) ---");
