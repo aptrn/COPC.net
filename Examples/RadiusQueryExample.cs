@@ -36,12 +36,48 @@ namespace Copc.Examples
             {
                 var bounds = node.Key.GetBounds(reader.Config.LasHeader, reader.Config.CopcInfo);
                 Console.WriteLine($"Node {node.Key}: {node.PointCount} points, bounds: {bounds}");
+            }
+
+            // Decompress and print points
+            if (nodes.Count > 0)
+            {
+                Console.WriteLine("\n=== Decompressing Points ===");
+                long totalPointsInNodes = nodes.Sum(n => (long)n.PointCount);
+                Console.WriteLine($"Decompressing {nodes.Count} nodes ({totalPointsInNodes:N0} points)...\n");
                 
-                // Get compressed data for this node
-                byte[] compressedData = reader.GetPointDataCompressed(node);
-                
-                // TODO: Decompress and filter individual points by distance
-                // (You would use external tools like PDAL or copclib for decompression)
+                var allPoints = reader.GetPointsFromNodes(nodes);
+                Console.WriteLine($"Decompressed {allPoints.Length:N0} points");
+
+                // Filter by actual distance
+                var pointsInRadius = allPoints.Where(p =>
+                {
+                    double dx = p.X - centerX;
+                    double dy = p.Y - centerY;
+                    double dz = p.Z - centerZ;
+                    double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                    return distance <= radius;
+                }).ToArray();
+
+                Console.WriteLine($"Points within radius: {pointsInRadius.Length:N0}\n");
+
+                if (pointsInRadius.Length > 0)
+                {
+                    int pointsToPrint = Math.Min(15, pointsInRadius.Length);
+                    Console.WriteLine($"Showing first {pointsToPrint} points:\n");
+
+                    for (int i = 0; i < pointsToPrint; i++)
+                    {
+                        var p = pointsInRadius[i];
+                        double dx = p.X - centerX;
+                        double dy = p.Y - centerY;
+                        double dz = p.Z - centerZ;
+                        double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                        
+                        Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
+                                        $"Distance={distance,8:F3}m Intensity={p.Intensity,5} Class={p.Classification,3}");
+                    }
+                    Console.WriteLine("\n✅ Complete!");
+                }
             }
         }
 
@@ -309,6 +345,47 @@ namespace Copc.Examples
             Console.WriteLine($"  Extra nodes in box: {boxNodes.Count - radiusNodes.Count}");
             Console.WriteLine($"  Extra points in box: {(boxPoints - radiusPoints):N0}");
             Console.WriteLine($"  Efficiency: Radius query returns {(100.0 * radiusNodes.Count / boxNodes.Count):F1}% of box query nodes");
+
+            // Decompress and print points from radius query
+            if (radiusNodes.Count > 0)
+            {
+                Console.WriteLine("\n=== Decompressing Points from Radius Query ===");
+                Console.WriteLine($"Decompressing {radiusNodes.Count} nodes ({radiusPoints:N0} points)...\n");
+                
+                var allPoints = reader.GetPointsFromNodes(radiusNodes);
+                Console.WriteLine($"Decompressed {allPoints.Length:N0} points");
+
+                // Filter by actual distance
+                var pointsInRadius = allPoints.Where(p =>
+                {
+                    double dx = p.X - center.X;
+                    double dy = p.Y - center.Y;
+                    double dz = p.Z - center.Z;
+                    double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                    return distance <= radius;
+                }).ToArray();
+
+                Console.WriteLine($"Points within radius: {pointsInRadius.Length:N0}\n");
+
+                if (pointsInRadius.Length > 0)
+                {
+                    int pointsToPrint = Math.Min(10, pointsInRadius.Length);
+                    Console.WriteLine($"Showing first {pointsToPrint} points:\n");
+
+                    for (int i = 0; i < pointsToPrint; i++)
+                    {
+                        var p = pointsInRadius[i];
+                        double dx = p.X - center.X;
+                        double dy = p.Y - center.Y;
+                        double dz = p.Z - center.Z;
+                        double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                        
+                        Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
+                                        $"Distance={distance,8:F3}m Intensity={p.Intensity,5} Class={p.Classification,3}");
+                    }
+                    Console.WriteLine("\n✅ Complete!");
+                }
+            }
         }
     }
 }

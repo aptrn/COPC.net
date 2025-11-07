@@ -68,33 +68,19 @@ namespace Copc.Examples
             var compressedData = reader.GetPointDataCompressed(rootNode);
             Console.WriteLine($"Compressed Size: {compressedData.Length} bytes");
 
-            // Decompress the chunk
-            var decompressor = new ChunkDecompressor();
-            decompressor.Open(
-                reader.Config.LasHeader.BasePointFormat,
-                reader.Config.LasHeader.PointDataRecordLength,
-                compressedData
-            );
+            // Decompress the chunk using LazDecompressor (handles 0/6/7/8 appropriately)
+            int pf = reader.Config.LasHeader.BasePointFormat;
+            int ps = reader.Config.LasHeader.PointDataRecordLength;
+            var points = LazDecompressor.DecompressChunk(pf, ps, compressedData, rootNode.PointCount, reader.Config.LasHeader);
 
             // Read first 5 points
-            int pointsToShow = Math.Min(5, rootNode.PointCount);
+            int pointsToShow = Math.Min(5, points.Length);
             Console.WriteLine($"\nFirst {pointsToShow} points:");
-            
             for (int i = 0; i < pointsToShow; i++)
             {
-                var pointData = decompressor.GetPoint();
-                var point = LasPoint10.Unpack(pointData, 0);
-                
-                // Apply scale and offset to get actual coordinates
-                double x = point.X * reader.Config.LasHeader.XScaleFactor + reader.Config.LasHeader.XOffset;
-                double y = point.Y * reader.Config.LasHeader.YScaleFactor + reader.Config.LasHeader.YOffset;
-                double z = point.Z * reader.Config.LasHeader.ZScaleFactor + reader.Config.LasHeader.ZOffset;
-                
-                Console.WriteLine($"  Point {i}: ({x:F3}, {y:F3}, {z:F3}) " +
-                                $"Intensity={point.Intensity} Class={point.Classification}");
+                var p = points[i];
+                Console.WriteLine($"  Point {i}: ({p.X:F3}, {p.Y:F3}, {p.Z:F3}) Intensity={p.Intensity} Class={p.Classification}");
             }
-
-            decompressor.Close();
         }
 
         private static void DecompressLayerNodes(CopcReader reader, int layer)
@@ -113,12 +99,13 @@ namespace Copc.Examples
                 
                 var compressedData = reader.GetPointDataCompressed(node);
                 
-                // Use the static helper method to decompress all points at once
-                var pointsData = ChunkDecompressor.DecompressChunk(
+                // Decompress all points at once via LazDecompressor
+                var pointsData = LazDecompressor.DecompressChunk(
                     reader.Config.LasHeader.BasePointFormat,
                     reader.Config.LasHeader.PointDataRecordLength,
                     compressedData,
-                    node.PointCount
+                    node.PointCount,
+                    reader.Config.LasHeader
                 );
 
                 totalPoints += pointsData.Length;
@@ -127,11 +114,8 @@ namespace Copc.Examples
                 // Show statistics about first point
                 if (pointsData.Length > 0)
                 {
-                    var firstPoint = LasPoint10.Unpack(pointsData[0], 0);
-                    double x = firstPoint.X * reader.Config.LasHeader.XScaleFactor + reader.Config.LasHeader.XOffset;
-                    double y = firstPoint.Y * reader.Config.LasHeader.YScaleFactor + reader.Config.LasHeader.YOffset;
-                    double z = firstPoint.Z * reader.Config.LasHeader.ZScaleFactor + reader.Config.LasHeader.ZOffset;
-                    Console.WriteLine($"  First point: ({x:F3}, {y:F3}, {z:F3})");
+                    var fp = pointsData[0];
+                    Console.WriteLine($"  First point: ({fp.X:F3}, {fp.Y:F3}, {fp.Z:F3})");
                 }
             }
 
@@ -166,16 +150,17 @@ namespace Copc.Examples
             {
                 var compressedData = reader.GetPointDataCompressed(node);
                 
-                // Decompress to flat byte array
-                var flatData = ChunkDecompressor.DecompressChunkFlat(
+                // Decompress to typed points
+                var pts = LazDecompressor.DecompressChunk(
                     reader.Config.LasHeader.BasePointFormat,
                     reader.Config.LasHeader.PointDataRecordLength,
                     compressedData,
-                    node.PointCount
+                    node.PointCount,
+                    reader.Config.LasHeader
                 );
 
-                totalPoints += node.PointCount;
-                Console.WriteLine($"  Node {node.Key}: {node.PointCount} points decompressed");
+                totalPoints += pts.Length;
+                Console.WriteLine($"  Node {node.Key}: {pts.Length} points decompressed");
             }
 
             if (nodes.Count > maxNodesToShow)
@@ -203,37 +188,28 @@ namespace Copc.Examples
 
             var compressedData = reader.GetPointDataCompressed(node);
 
-            // Create decompressor
-            var decompressor = new ChunkDecompressor();
-            decompressor.Open(
+            // Decompress all points and compute statistics
+            var nodePoints = LazDecompressor.DecompressChunk(
                 reader.Config.LasHeader.BasePointFormat,
                 reader.Config.LasHeader.PointDataRecordLength,
-                compressedData
+                compressedData,
+                node.PointCount,
+                reader.Config.LasHeader
             );
 
-            // Decompress all points and compute statistics
-            int totalPoints = node.PointCount;
+            int totalPoints = nodePoints.Length;
             double sumX = 0, sumY = 0, sumZ = 0;
             int minIntensity = int.MaxValue, maxIntensity = int.MinValue;
 
             for (int i = 0; i < totalPoints; i++)
             {
-                var pointData = decompressor.GetPoint();
-                var point = LasPoint10.Unpack(pointData, 0);
-                
-                double x = point.X * reader.Config.LasHeader.XScaleFactor + reader.Config.LasHeader.XOffset;
-                double y = point.Y * reader.Config.LasHeader.YScaleFactor + reader.Config.LasHeader.YOffset;
-                double z = point.Z * reader.Config.LasHeader.ZScaleFactor + reader.Config.LasHeader.ZOffset;
-                
-                sumX += x;
-                sumY += y;
-                sumZ += z;
-                
-                if (point.Intensity < minIntensity) minIntensity = point.Intensity;
-                if (point.Intensity > maxIntensity) maxIntensity = point.Intensity;
+                var p = nodePoints[i];
+                sumX += p.X;
+                sumY += p.Y;
+                sumZ += p.Z;
+                if (p.Intensity < minIntensity) minIntensity = p.Intensity;
+                if (p.Intensity > maxIntensity) maxIntensity = p.Intensity;
             }
-
-            decompressor.Close();
 
             Console.WriteLine($"\nStatistics:");
             Console.WriteLine($"  Centroid: ({sumX/totalPoints:F3}, {sumY/totalPoints:F3}, {sumZ/totalPoints:F3})");

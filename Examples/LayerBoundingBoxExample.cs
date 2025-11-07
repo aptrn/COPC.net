@@ -107,6 +107,30 @@ namespace Copc.Examples
                 Console.WriteLine($"  Total compressed bytes: {totalBytes:N0}");
                 Console.WriteLine($"  Average points per node: {(double)totalPoints / nodesAtLayer.Count:F2}");
                 Console.WriteLine($"  Average bytes per node: {(double)totalBytes / nodesAtLayer.Count:F2}");
+
+                // Decompress and print sample points from first few nodes
+                Console.WriteLine($"\n=== Decompressing Sample Points ===\n");
+                var nodesToDecompress = nodesAtLayer.Take(Math.Min(3, nodesAtLayer.Count)).ToList();
+                long totalPointsInSample = nodesToDecompress.Sum(n => (long)n.PointCount);
+                
+                Console.WriteLine($"Decompressing {nodesToDecompress.Count} nodes ({totalPointsInSample:N0} points)...");
+                
+                var allPoints = reader.GetPointsFromNodes(nodesToDecompress);
+                Console.WriteLine($"Decompressed {allPoints.Length:N0} points\n");
+
+                if (allPoints.Length > 0)
+                {
+                    int pointsToPrint = Math.Min(15, allPoints.Length);
+                    Console.WriteLine($"Showing first {pointsToPrint} points:\n");
+
+                    for (int i = 0; i < pointsToPrint; i++)
+                    {
+                        var p = allPoints[i];
+                        Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
+                                        $"Intensity={p.Intensity,5} Class={p.Classification,3}");
+                    }
+                    Console.WriteLine();
+                }
             }
         }
 
@@ -154,6 +178,38 @@ namespace Copc.Examples
                     string na = "N/A";
                     string zero = "0";
                     Console.WriteLine($"  {layer,2}  | {boundingBoxes.Count,5} | {na,20} | {zero,12}");
+                }
+            }
+
+            // Decompress and print sample points from first layer with nodes
+            Console.WriteLine("\n=== Decompressing Sample Points from First Layer ===\n");
+            var firstLayerWithNodes = layers.FirstOrDefault(layer => reader.GetNodesAtLayer(layer).Count > 0);
+            
+            if (firstLayerWithNodes >= 0)
+            {
+                var nodes = reader.GetNodesAtLayer(firstLayerWithNodes).Take(Math.Min(2, reader.GetNodesAtLayer(firstLayerWithNodes).Count)).ToList();
+                
+                if (nodes.Count > 0)
+                {
+                    long totalPointsInSample = nodes.Sum(n => (long)n.PointCount);
+                    Console.WriteLine($"Layer {firstLayerWithNodes}: Decompressing {nodes.Count} nodes ({totalPointsInSample:N0} points)...");
+                    
+                    var allPoints = reader.GetPointsFromNodes(nodes);
+                    Console.WriteLine($"Decompressed {allPoints.Length:N0} points\n");
+
+                    if (allPoints.Length > 0)
+                    {
+                        int pointsToPrint = Math.Min(10, allPoints.Length);
+                        Console.WriteLine($"Showing first {pointsToPrint} points:\n");
+
+                        for (int i = 0; i < pointsToPrint; i++)
+                        {
+                            var p = allPoints[i];
+                            Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
+                                            $"Intensity={p.Intensity,5} Class={p.Classification,3}");
+                        }
+                        Console.WriteLine();
+                    }
                 }
             }
         }

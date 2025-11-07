@@ -28,16 +28,19 @@ namespace Copc.Examples
             Console.WriteLine($"Found {nodes.Count} nodes intersecting the frustum");
             Console.WriteLine($"Total points: {nodes.Sum(n => (long)n.PointCount):N0}");
 
-            // Process each node
-            foreach (var node in nodes)
+            // Decompress and process sample nodes
+            var sample = nodes.Take(Math.Min(3, nodes.Count)).ToList();
+            if (sample.Count > 0)
             {
-                Console.WriteLine($"Node {node.Key}: {node.PointCount} points");
-                
-                // Get compressed data for this node
-                byte[] compressedData = reader.GetPointDataCompressed(node);
-                
-                // TODO: Decompress and process points
-                // (You would use external tools like PDAL or copclib for decompression)
+                Console.WriteLine($"Decompressing {sample.Count} nodes...");
+                var points = reader.GetPointsFromNodes(sample);
+                Console.WriteLine($"Decompressed {points.Length:N0} points");
+                int toShow = Math.Min(10, points.Length);
+                for (int i = 0; i < toShow; i++)
+                {
+                    var p = points[i];
+                    Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} Intensity={p.Intensity,5} Class={p.Classification,3}");
+                }
             }
         }
 
@@ -117,6 +120,12 @@ namespace Copc.Examples
             // Query nodes
             var nodes = reader.GetNodesIntersectFrustum(frustum);
             Console.WriteLine($"Found {nodes.Count} nodes visible from camera");
+            var sample = nodes.Take(Math.Min(2, nodes.Count)).ToList();
+            if (sample.Count > 0)
+            {
+                var points = reader.GetPointsFromNodes(sample);
+                Console.WriteLine($"Decompressed {points.Length:N0} points from visible nodes");
+            }
         }
 
         /// <summary>

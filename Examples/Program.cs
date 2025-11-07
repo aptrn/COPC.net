@@ -13,6 +13,22 @@ namespace Copc.Examples
         {
             Console.WriteLine("=== COPC.Net Examples ===\n");
             
+            // Handle global flags (e.g., --debug) and normalize args
+            var argList = new List<string>(args);
+            bool debug = false;
+            for (int i = argList.Count - 1; i >= 0; i--)
+            {
+                var a = argList[i];
+                if (string.Equals(a, "--debug", StringComparison.OrdinalIgnoreCase) || string.Equals(a, "-d", StringComparison.OrdinalIgnoreCase))
+                {
+                    debug = true;
+                    argList.RemoveAt(i);
+                }
+            }
+            Copc.Utils.DebugConfig.LazPerfDebug = debug;
+
+            args = argList.ToArray();
+
             if (args.Length < 2)
             {
                 PrintUsage();
@@ -82,33 +98,33 @@ namespace Copc.Examples
                         break;
 
                     case "bbox-chunked":
-                        // bbox-chunked <cache-dir> <file> <lod> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>
-                        if (args.Length < 10)
+                        // bbox-chunked <file> <lod> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>
+                        if (args.Length < 9)
                         {
-                            Console.WriteLine("Usage: Examples bbox-chunked <cache-dir> <copc-file> <lod> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");
+                            Console.WriteLine("Usage: Examples bbox-chunked <copc-file> <lod> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");
                             return;
                         }
-                        BoundingBoxChunkedExample(args[1], args[2], int.Parse(args[3]),
-                            double.Parse(args[4]), double.Parse(args[5]), double.Parse(args[6]),
-                            double.Parse(args[7]), double.Parse(args[8]), double.Parse(args[9]));
+                        BoundingBoxChunkedExample(args[1], int.Parse(args[2]),
+                            double.Parse(args[3]), double.Parse(args[4]), double.Parse(args[5]),
+                            double.Parse(args[6]), double.Parse(args[7]), double.Parse(args[8]));
                         break;
 
                     case "frustum-chunked":
-                        // frustum-chunked <cache-dir> <file> <resolution> <m00> <m01> ... <m33>
-                        if (args.Length < 20)
+                        // frustum-chunked <file> <resolution> <m00> <m01> ... <m33>
+                        if (args.Length < 19)
                         {
-                            Console.WriteLine("Usage: Examples frustum-chunked <cache-dir> <copc-file> <resolution> <m00> <m01> <m02> <m03> <m10> <m11> <m12> <m13> <m20> <m21> <m22> <m23> <m30> <m31> <m32> <m33>");
+                            Console.WriteLine("Usage: Examples frustum-chunked <copc-file> <resolution> <m00> <m01> <m02> <m03> <m10> <m11> <m12> <m13> <m20> <m21> <m22> <m23> <m30> <m31> <m32> <m33>");
                             Console.WriteLine("\nMatrix elements should be provided in row-major order (16 values)");
                             return;
                         }
                         // Parse resolution and matrix elements
-                        double resolution = double.Parse(args[3]);
+                        double resolution = double.Parse(args[2]);
                         double[] matrix = new double[16];
                         for (int i = 0; i < 16; i++)
                         {
-                            matrix[i] = double.Parse(args[4 + i]);
+                            matrix[i] = double.Parse(args[3 + i]);
                         }
-                        FrustumChunkedExample(args[1], args[2], matrix, resolution);
+                        FrustumChunkedExample(args[1], matrix, resolution);
                         break;
 
                     case "frustum-test":
@@ -179,6 +195,49 @@ namespace Copc.Examples
                                     Console.WriteLine($"  {node.Key}: {node.PointCount} points, bounds: {bounds}");
                                 }
                             }
+
+                            // Decompress and print points
+                            if (nodes.Count > 0)
+                            {
+                                Console.WriteLine("\n=== Decompressing Points ===");
+                                long totalPointsInNodes = nodes.Sum(n => (long)n.PointCount);
+                                Console.WriteLine($"Decompressing {nodes.Count} nodes ({totalPointsInNodes:N0} points)...\n");
+                                
+                                var allPoints = reader.GetPointsFromNodes(nodes);
+                                Console.WriteLine($"Decompressed {allPoints.Length:N0} points");
+
+                                // Filter by actual distance
+                                var sphere = new Sphere(new Vector3(centerX, centerY, centerZ), radius);
+                                var pointsInRadius = allPoints.Where(p =>
+                                {
+                                    double dx = p.X - centerX;
+                                    double dy = p.Y - centerY;
+                                    double dz = p.Z - centerZ;
+                                    double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                                    return distance <= radius;
+                                }).ToArray();
+
+                                Console.WriteLine($"Points within radius: {pointsInRadius.Length:N0}\n");
+
+                                if (pointsInRadius.Length > 0)
+                                {
+                                    int pointsToPrint = Math.Min(20, pointsInRadius.Length);
+                                    Console.WriteLine($"Showing first {pointsToPrint} points:\n");
+
+                                    for (int i = 0; i < pointsToPrint; i++)
+                                    {
+                                        var p = pointsInRadius[i];
+                                        double dx = p.X - centerX;
+                                        double dy = p.Y - centerY;
+                                        double dz = p.Z - centerZ;
+                                        double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                                        
+                                        Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
+                                                        $"Distance={distance,8:F3}m Intensity={p.Intensity,5} Class={p.Classification,3}");
+                                    }
+                                    Console.WriteLine("\n✅ Complete!");
+                                }
+                            }
                         }
                         break;
 
@@ -233,8 +292,8 @@ namespace Copc.Examples
             Console.WriteLine("  Examples bbox-res <copc-file> <resolution> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");
             Console.WriteLine("  Examples bbox-info <copc-file> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");
             Console.WriteLine("  Examples preprocess <copc-file> <cache-dir>");
-            Console.WriteLine("  Examples bbox-chunked <cache-dir> <copc-file> <lod> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");
-            Console.WriteLine("  Examples frustum-chunked <cache-dir> <copc-file> <resolution> <m00> ... <m33>");
+            Console.WriteLine("  Examples bbox-chunked <copc-file> <lod> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");
+            Console.WriteLine("  Examples frustum-chunked <copc-file> <resolution> <m00> ... <m33>");
             Console.WriteLine("  Examples frustum-test");
             Console.WriteLine("  Examples layer-bbox <copc-file> <layer>");
             Console.WriteLine("  Examples layer-compare <copc-file> <layer1> <layer2> ... <layerN>");
@@ -248,8 +307,8 @@ namespace Copc.Examples
             Console.WriteLine("  Examples bbox-res data.copc.laz 0.1 -10 -10 0 10 10 50");
             Console.WriteLine("  Examples bbox-info data.copc.laz -10 -10 0 10 10 50");
             Console.WriteLine("  Examples preprocess data.copc.laz cache/");
-            Console.WriteLine("  Examples bbox-chunked cache/ data.copc.laz 3 -10 -10 0 10 10 50");
-            Console.WriteLine("  Examples frustum-chunked cache/ data.copc.laz 0.1 1 0 0 0 0 1 0 0 0 0 -1 -10 0 0 -1 0");
+            Console.WriteLine("  Examples bbox-chunked data.copc.laz 3 -10 -10 0 10 10 50");
+            Console.WriteLine("  Examples frustum-chunked data.copc.laz 0.1 1 0 0 0 0 1 0 0 0 0 -1 -10 0 0 -1 0");
             Console.WriteLine("  Examples frustum-test");
             Console.WriteLine("  Examples layer-bbox data.copc.laz 2");
             Console.WriteLine("  Examples layer-compare data.copc.laz 0 1 2 3 4");
@@ -260,17 +319,17 @@ namespace Copc.Examples
             Console.WriteLine("  Examples chunk-decompress data.copc.laz");
             Console.WriteLine("\nCommands:");
             Console.WriteLine("  random          - Pick a random bounding box at specified LOD and print points");
-            Console.WriteLine("  bbox-lod        - Query specific bounding box at specific LOD");
-            Console.WriteLine("  bbox-res        - Query specific bounding box at specific resolution");
-            Console.WriteLine("  bbox-info       - Show information about a bounding box across all LODs");
-            Console.WriteLine("  preprocess      - Extract all node chunks to cache directory for fast queries");
-            Console.WriteLine("  bbox-chunked    - Query bounding box using cached chunks (much faster!)");
-            Console.WriteLine("  frustum-chunked - Query frustum (camera view) using cached chunks");
+            Console.WriteLine("  bbox-lod        - Query specific bounding box at specific LOD and print points");
+            Console.WriteLine("  bbox-res        - Query specific bounding box at specific resolution and print points");
+            Console.WriteLine("  bbox-info       - Show information about a bounding box across all LODs and print sample points");
+            Console.WriteLine("  preprocess      - Extract all node chunks to cache directory (optional)");
+            Console.WriteLine("  bbox-chunked    - Query bounding box and decompress/print points");
+            Console.WriteLine("  frustum-chunked - Query frustum (camera view) and decompress/print points");
             Console.WriteLine("  frustum-test    - Run frustum functionality tests");
-            Console.WriteLine("  layer-bbox      - Get bounding boxes for all nodes at a specific layer");
-            Console.WriteLine("  layer-compare   - Compare node statistics across multiple layers");
-            Console.WriteLine("  radius          - Query nodes within a spherical radius from a point");
-            Console.WriteLine("  radius-compare  - Compare box vs radius query efficiency");
+            Console.WriteLine("  layer-bbox      - Get bounding boxes for all nodes at a specific layer and print sample points");
+            Console.WriteLine("  layer-compare   - Compare node statistics across multiple layers and print sample points");
+            Console.WriteLine("  radius          - Query nodes within a spherical radius from a point and print points");
+            Console.WriteLine("  radius-compare  - Compare box vs radius query efficiency and print points");
             Console.WriteLine("  lazperf-test    - Test lazperf decompression on root node and print XYZ coords");
             Console.WriteLine("  chunk-decompress - Comprehensive chunk decompression examples");
         }
@@ -668,6 +727,47 @@ namespace Copc.Examples
                 Console.WriteLine($"... and {nodesByLod.Count - 3} more LODs\n");
             }
 
+            // Decompress and print points from first LOD
+            if (nodesByLod.Count > 0)
+            {
+                var firstLodGroup = nodesByLod.First();
+                var firstLodNodes = firstLodGroup.Take(3).ToList(); // Take first 3 nodes
+                
+                if (firstLodNodes.Count > 0)
+                {
+                    Console.WriteLine($"=== Decompressing Sample Points from LOD {firstLodGroup.Key} ===\n");
+                    
+                    long totalPointsInNodes = firstLodNodes.Sum(n => (long)n.PointCount);
+                    Console.WriteLine($"Decompressing {firstLodNodes.Count} nodes ({totalPointsInNodes:N0} points)...");
+                    
+                    var allPoints = reader.GetPointsFromNodes(firstLodNodes);
+                    Console.WriteLine($"Decompressed {allPoints.Length:N0} points\n");
+
+                    // Filter points to bounding box
+                    var pointsInBox = allPoints.Where(p =>
+                        p.X >= bbox.MinX && p.X <= bbox.MaxX &&
+                        p.Y >= bbox.MinY && p.Y <= bbox.MaxY &&
+                        p.Z >= bbox.MinZ && p.Z <= bbox.MaxZ).ToArray();
+
+                    Console.WriteLine($"Points within bounding box: {pointsInBox.Length:N0}\n");
+
+                    if (pointsInBox.Length > 0)
+                    {
+                        // Print first 10 points
+                        int pointsToPrint = Math.Min(10, pointsInBox.Length);
+                        Console.WriteLine($"Showing first {pointsToPrint} points:\n");
+
+                        for (int i = 0; i < pointsToPrint; i++)
+                        {
+                            var p = pointsInBox[i];
+                            Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
+                                            $"Intensity={p.Intensity,5} Class={p.Classification,3}");
+                        }
+                        Console.WriteLine();
+                    }
+                }
+            }
+
             Console.WriteLine("✅ Complete!");
         }
 
@@ -794,25 +894,17 @@ namespace Copc.Examples
             Console.WriteLine($"\nNow you can use 'bbox-chunked' to demonstrate selective chunk loading!");
         }
 
-        static void BoundingBoxChunkedExample(string cacheDir, string copcFilePath, int targetLod,
+        static void BoundingBoxChunkedExample(string copcFilePath, int targetLod,
             double minX, double minY, double minZ, double maxX, double maxY, double maxZ)
         {
             Console.WriteLine("=== Chunked Bounding Box Query (Performance Optimized) ===\n");
             Console.WriteLine($"File: {copcFilePath}");
-            Console.WriteLine($"Cache: {cacheDir}");
             Console.WriteLine($"Target LOD: {targetLod}");
             Console.WriteLine($"Bounding Box: [{minX:F3}, {minY:F3}, {minZ:F3}] to [{maxX:F3}, {maxY:F3}, {maxZ:F3}]\n");
 
             if (!File.Exists(copcFilePath))
             {
                 Console.WriteLine($"Error: File not found: {copcFilePath}");
-                return;
-            }
-
-            if (!Directory.Exists(cacheDir))
-            {
-                Console.WriteLine($"Error: Cache directory not found: {cacheDir}");
-                Console.WriteLine($"Run 'Examples preprocess {copcFilePath} {cacheDir}' first!");
                 return;
             }
 
@@ -858,56 +950,21 @@ namespace Copc.Examples
             long totalPointsInNodes = matchingNodes.Sum(n => (long)n.PointCount);
             Console.WriteLine($"Total points in matching nodes: {totalPointsInNodes:N0}\n");
 
-            // Load only relevant chunks (demonstrating selective loading)
-            Console.WriteLine("=== Loading Relevant Chunks ===");
-            Console.WriteLine($"Identifying and loading {matchingNodes.Count} relevant chunks...\n");
-
-            var loadSw = System.Diagnostics.Stopwatch.StartNew();
-            int chunksProcessed = 0;
-            long totalChunkBytes = 0;
-            var chunksToDecompress = new List<string>();
-
-            foreach (var node in matchingNodes)
-            {
-                string chunkFile = Path.Combine(cacheDir, $"{node.Key.ToString().Replace("-", "_")}.laz");
-
-                if (!File.Exists(chunkFile))
-                {
-                    Console.WriteLine($"  ⚠️  Warning: Chunk file not found: {chunkFile}");
-                    continue;
-                }
-
-                totalChunkBytes += new FileInfo(chunkFile).Length;
-                chunksToDecompress.Add(chunkFile);
-                chunksProcessed++;
-
-                if (chunksProcessed % 10 == 0 || chunksProcessed == matchingNodes.Count)
-                {
-                    Console.WriteLine($"  Loaded {chunksProcessed}/{matchingNodes.Count} chunks");
-                }
-            }
-
-            loadSw.Stop();
-
-            Console.WriteLine($"\n✅ Identified {chunksProcessed} relevant chunks in {loadSw.ElapsedMilliseconds}ms");
-            Console.WriteLine($"Total chunk data to process: {totalChunkBytes:N0} bytes ({totalChunkBytes / 1024.0 / 1024.0:F2} MB)");
-            Console.WriteLine($"\n📊 Performance Comparison:");
-            Console.WriteLine($"  Sequential approach: Would read entire file ({header.ExtendedNumberOfPointRecords:N0} points)");
-            Console.WriteLine($"  Chunked approach: Only needs to read {totalPointsInNodes:N0} points from {chunksProcessed} chunks");
+            Console.WriteLine($"📊 Performance Comparison:");
+            Console.WriteLine($"  Full file approach: Would read entire file ({header.ExtendedNumberOfPointRecords:N0} points)");
+            Console.WriteLine($"  Chunked approach: Only needs to read {totalPointsInNodes:N0} points from {matchingNodes.Count} chunks");
             Console.WriteLine($"  Data reduction: {100.0 * totalPointsInNodes / header.ExtendedNumberOfPointRecords:F1}% of total points");
             Console.WriteLine($"  Speedup potential: ~{header.ExtendedNumberOfPointRecords / (double)totalPointsInNodes:F1}x faster\n");
 
-            // For demonstration, decompress from the main file but only the amount we need
-            Console.WriteLine("=== Decompressing Points (from main file for demo) ===");
+            // Decompress only the relevant nodes using LAZ-perf
+            Console.WriteLine("=== Decompressing Points ===");
             var decompressSw = System.Diagnostics.Stopwatch.StartNew();
             
-            // Decompress only the relevant nodes using LAZ-perf
             var allPoints = reader.GetPointsFromNodes(matchingNodes);
             
             decompressSw.Stop();
 
-            Console.WriteLine($"Decompressed {allPoints.Length:N0} points in {decompressSw.ElapsedMilliseconds}ms");
-            Console.WriteLine($"(In production, each chunk would be decompressed independently in parallel)\n");
+            Console.WriteLine($"Decompressed {allPoints.Length:N0} points in {decompressSw.ElapsedMilliseconds}ms\n");
 
             // Filter points to bounding box
             var filterSw = System.Diagnostics.Stopwatch.StartNew();
@@ -962,7 +1019,7 @@ namespace Copc.Examples
 
             Console.WriteLine($"\n=== Performance Summary ===");
             Console.WriteLine($"Query planning: {querySw.ElapsedMilliseconds}ms");
-            Console.WriteLine($"Chunk decompression: {decompressSw.ElapsedMilliseconds}ms");
+            Console.WriteLine($"Point decompression: {decompressSw.ElapsedMilliseconds}ms");
             Console.WriteLine($"Point filtering: {filterSw.ElapsedMilliseconds}ms");
             Console.WriteLine($"Total time: {totalSw.ElapsedMilliseconds}ms");
             Console.WriteLine($"Points per second: {pointsInBox.Length / (totalSw.Elapsed.TotalSeconds):N0}");
@@ -970,23 +1027,15 @@ namespace Copc.Examples
             Console.WriteLine("\n✅ Complete!");
         }
 
-        static void FrustumChunkedExample(string cacheDir, string copcFilePath, double[] viewProjectionMatrix, double targetResolution)
+        static void FrustumChunkedExample(string copcFilePath, double[] viewProjectionMatrix, double targetResolution)
         {
             Console.WriteLine("=== Chunked Frustum Query (Camera View - Performance Optimized) ===\n");
             Console.WriteLine($"File: {copcFilePath}");
-            Console.WriteLine($"Cache: {cacheDir}");
             Console.WriteLine($"Target Resolution: {targetResolution:F3}m\n");
 
             if (!File.Exists(copcFilePath))
             {
                 Console.WriteLine($"Error: File not found: {copcFilePath}");
-                return;
-            }
-
-            if (!Directory.Exists(cacheDir))
-            {
-                Console.WriteLine($"Error: Cache directory not found: {cacheDir}");
-                Console.WriteLine($"Run 'Examples preprocess {copcFilePath} {cacheDir}' first!");
                 return;
             }
 
@@ -1054,58 +1103,22 @@ namespace Copc.Examples
                 Console.WriteLine($"  LOD {group.Key} (res: {res:F4}m): {group.Count()} nodes, {group.Sum(n => (long)n.PointCount):N0} points");
             }
 
-            // Load only relevant chunks (demonstrating selective loading)
-            Console.WriteLine($"\n=== Loading Relevant Chunks ===");
-            Console.WriteLine($"Identifying and loading {visibleNodes.Count} relevant chunks...\n");
-
-            var loadSw = System.Diagnostics.Stopwatch.StartNew();
-            int chunksProcessed = 0;
-            long totalChunkBytes = 0;
-            var chunksToDecompress = new List<string>();
-
-            foreach (var node in visibleNodes)
-            {
-                string chunkFile = Path.Combine(cacheDir, $"{node.Key.ToString().Replace("-", "_")}.laz");
-
-                if (!File.Exists(chunkFile))
-                {
-                    Console.WriteLine($"  ⚠️  Warning: Chunk file not found: {chunkFile}");
-                    continue;
-                }
-
-                totalChunkBytes += new FileInfo(chunkFile).Length;
-                chunksToDecompress.Add(chunkFile);
-                chunksProcessed++;
-
-                if (chunksProcessed % 10 == 0 || chunksProcessed == visibleNodes.Count)
-                {
-                    Console.WriteLine($"  Loaded {chunksProcessed}/{visibleNodes.Count} chunks");
-                }
-            }
-
-            loadSw.Stop();
-
-            Console.WriteLine($"\n✅ Identified {chunksProcessed} relevant chunks in {loadSw.ElapsedMilliseconds}ms");
-            Console.WriteLine($"Total chunk data to process: {totalChunkBytes:N0} bytes ({totalChunkBytes / 1024.0 / 1024.0:F2} MB)");
-            
             Console.WriteLine($"\n📊 Performance Comparison:");
             Console.WriteLine($"  Full scan approach: Would read entire file ({header.ExtendedNumberOfPointRecords:N0} points)");
-            Console.WriteLine($"  Frustum culling: Only needs to read {totalPointsInNodes:N0} points from {chunksProcessed} chunks");
+            Console.WriteLine($"  Frustum culling: Only needs to read {totalPointsInNodes:N0} points from {visibleNodes.Count} chunks");
             Console.WriteLine($"  Data reduction: {100.0 * totalPointsInNodes / header.ExtendedNumberOfPointRecords:F1}% of total points");
             Console.WriteLine($"  Speedup potential: ~{header.ExtendedNumberOfPointRecords / (double)totalPointsInNodes:F1}x faster");
             Console.WriteLine($"\n💡 Use Case: Real-time rendering - load only points visible from camera!");
 
-            // For demonstration, decompress from the main file
-            Console.WriteLine("\n=== Decompressing Visible Points (from main file for demo) ===");
+            // Decompress only the relevant visible nodes using LAZ-perf
+            Console.WriteLine("\n=== Decompressing Visible Points ===");
             var decompressSw = System.Diagnostics.Stopwatch.StartNew();
             
-            // Decompress only the relevant visible nodes using LAZ-perf
             var allPoints = reader.GetPointsFromNodes(visibleNodes);
             
             decompressSw.Stop();
 
-            Console.WriteLine($"Decompressed {allPoints.Length:N0} points in {decompressSw.ElapsedMilliseconds}ms");
-            Console.WriteLine($"(In production, each chunk would be decompressed independently in parallel)\n");
+            Console.WriteLine($"Decompressed {allPoints.Length:N0} points in {decompressSw.ElapsedMilliseconds}ms\n");
 
             // Filter points to frustum (rough approximation using bounding boxes)
             var filterSw = System.Diagnostics.Stopwatch.StartNew();
@@ -1172,7 +1185,6 @@ namespace Copc.Examples
             Console.WriteLine($"\n=== Performance Summary ===");
             Console.WriteLine($"Frustum extraction: <1ms");
             Console.WriteLine($"Query planning: {querySw.ElapsedMilliseconds}ms");
-            Console.WriteLine($"Chunk identification: {loadSw.ElapsedMilliseconds}ms");
             Console.WriteLine($"Point decompression: {decompressSw.ElapsedMilliseconds}ms");
             Console.WriteLine($"Frustum filtering: {filterSw.ElapsedMilliseconds}ms");
             Console.WriteLine($"Total time: {totalSw.ElapsedMilliseconds}ms");
@@ -1182,7 +1194,7 @@ namespace Copc.Examples
             Console.WriteLine("\n💡 Tip: In a real rendering application, you would:");
             Console.WriteLine("   1. Extract frustum from camera's view-projection matrix every frame");
             Console.WriteLine("   2. Query visible nodes using GetNodesIntersectFrustum()");
-            Console.WriteLine("   3. Load and decompress only those chunks");
+            Console.WriteLine("   3. Decompress only those node chunks");
             Console.WriteLine("   4. Upload to GPU for rendering");
             Console.WriteLine("   5. Repeat for each frame with updated camera position");
         }
