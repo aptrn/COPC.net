@@ -228,6 +228,10 @@ namespace Copc.Cache
             return points;
         }
 
+
+        private List<CopcPoint> allPoints = new List<CopcPoint>();
+        private List<Node> nodesToLoadScratch = new List<Node>();
+        private List<StridePoint> allStridePointsScratch = new List<StridePoint>();
         /// <summary>
         /// Gets points for multiple nodes, using cache when possible and loading only uncached nodes.
         /// This is more efficient than loading nodes one at a time.
@@ -237,8 +241,8 @@ namespace Copc.Cache
         /// <returns>Array of all points from the nodes</returns>
         public CopcPoint[] GetOrLoadPointsFromNodes(IEnumerable<Node> nodes, CopcReader reader)
         {
-            var allPoints = new List<CopcPoint>();
-            var nodesToLoad = new List<Node>();
+            allPoints.Clear();
+            nodesToLoadScratch.Clear();
 
             // First pass: check cache and collect nodes that need loading
             foreach (var node in nodes)
@@ -249,12 +253,12 @@ namespace Copc.Cache
                 }
                 else
                 {
-                    nodesToLoad.Add(node);
+                    nodesToLoadScratch.Add(node);
                 }
             }
 
             // Second pass: load uncached nodes
-            foreach (var node in nodesToLoad)
+            foreach (var node in nodesToLoadScratch)
             {
                 try
                 {
@@ -383,8 +387,9 @@ namespace Copc.Cache
 			}
 
 			// Convert all cached points to Stride and generate separated arrays
-			var cachedNodes = GetCachedNodes();
-			var allStridePoints = new List<StridePoint>();
+            var cachedNodes = GetCachedNodes();
+            var allStridePoints = allStridePointsScratch;
+            allStridePoints.Clear();
 			foreach (var nodeInfo in cachedNodes)
 			{
 				if (TryGetPoints(nodeInfo.Key, out var copcPoints) && copcPoints != null)

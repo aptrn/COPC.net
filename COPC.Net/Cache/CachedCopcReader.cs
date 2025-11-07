@@ -20,6 +20,9 @@ namespace Copc.Cache
         private readonly PointCache cache;
         private readonly bool ownReader;
         private bool disposed;
+        private readonly List<Node> nodesToLoadScratch = new List<Node>();
+        private readonly List<(Node node, byte[] data)> compressedScratch = new List<(Node node, byte[] data)>();
+        private readonly List<CopcPoint> allCopcPointsScratch = new List<CopcPoint>();
 
         /// <summary>
         /// Gets the underlying COPC reader.
@@ -106,21 +109,22 @@ namespace Copc.Cache
                 throw new ArgumentNullException(nameof(nodes));
 
             // Determine which nodes actually need loading
-            var nodesToLoad = new List<Node>();
+            nodesToLoadScratch.Clear();
             foreach (var node in nodes)
             {
                 if (!cache.Contains(node.Key))
                 {
-                    nodesToLoad.Add(node);
+                    nodesToLoadScratch.Add(node);
                 }
             }
 
-            if (nodesToLoad.Count == 0)
+            if (nodesToLoadScratch.Count == 0)
                 return;
 
             // Step 1: Read compressed chunks sequentially (stream is not thread-safe)
-            var compressed = new List<(Node node, byte[] data)>(nodesToLoad.Count);
-            foreach (var node in nodesToLoad)
+            var compressed = compressedScratch;
+            compressed.Clear();
+            foreach (var node in nodesToLoadScratch)
             {
                 try
                 {
@@ -437,7 +441,8 @@ namespace Copc.Cache
         {
             if (nodes == null) throw new ArgumentNullException(nameof(nodes));
 
-            var allCopcPoints = new List<CopcPoint>();
+            var allCopcPoints = allCopcPointsScratch;
+            allCopcPoints.Clear();
             foreach (var node in nodes)
             {
                 if (cache.TryGetPoints(node.Key, out var pts) && pts != null && pts.Length > 0)
