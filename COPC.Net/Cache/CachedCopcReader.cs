@@ -81,6 +81,35 @@ namespace Copc.Cache
             return cache.GetOrLoadPointsFromNodes(nodes, reader);
         }
 
+        /// <summary>
+        /// Updates the cache with the provided nodes by ensuring their point data
+        /// is loaded into the cache. This does not return points, avoiding extra
+        /// allocations and concatenations for performance.
+        /// </summary>
+        /// <param name="nodes">Nodes whose data should be cached</param>
+        public void Update(IEnumerable<Node> nodes)
+        {
+            if (nodes == null)
+                throw new ArgumentNullException(nameof(nodes));
+
+            foreach (var node in nodes)
+            {
+                // Skip if already cached
+                if (cache.Contains(node.Key))
+                    continue;
+
+                try
+                {
+                    var points = reader.GetPointsFromNode(node);
+                    cache.Put(node.Key, points);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Failed to update cache for node {node.Key}: {ex.Message}");
+                }
+            }
+        }
+
         // Pass-through methods to underlying reader (no caching needed for hierarchy queries)
 
         /// <summary>
