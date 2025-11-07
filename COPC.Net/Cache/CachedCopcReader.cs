@@ -293,28 +293,38 @@ namespace Copc.Cache
             return GetPointsFromNodes(nodes);
         }
 
+        /// <summary>
+        /// Gets metadata about all available point attributes in the point cloud.
+        /// This returns information about what attributes are available (names, types, ranges)
+        /// WITHOUT loading any actual point data. Useful for setting up rendering pipeline.
+        /// </summary>
+        /// <returns>Metadata describing all available attributes</returns>
+        public PointCloudAttributeMetadata GetAttributeMetadata()
+        {
+            return reader.GetAttributeMetadata();
+        }
+
         // Stride-specific methods for easy data export
 
         /// <summary>
         /// Gets all currently cached data in Stride engine format.
-        /// Returns points with Position and Color as Vector4 (W=1 for both).
+        /// Returns points with Position and Color as Vector4 (W=1 for both),
+        /// and all other attributes as separate float32 values.
         /// </summary>
-        /// <param name="colorMode">Color mode for conversion (RGB, Intensity, Classification, or Elevation)</param>
         /// <returns>All cached points in Stride format</returns>
-        public StrideCacheData GetCacheData(StrideColorMode colorMode = StrideColorMode.RGB)
+        public StrideCacheData GetCacheData()
         {
-            return cache.GetCacheData(colorMode);
+            return cache.GetCacheData();
         }
 
         /// <summary>
-        /// Gets all currently cached data in Stride format with separate position and color arrays.
-        /// Useful for direct GPU buffer upload.
+        /// Gets all currently cached data in Stride format with separate arrays for each attribute.
+        /// Useful for direct GPU buffer upload as vertex attributes.
         /// </summary>
-        /// <param name="colorMode">Color mode for conversion (RGB, Intensity, Classification, or Elevation)</param>
-        /// <returns>All cached points with separate Position[] and Color[] arrays</returns>
-        public StrideCacheData GetCacheDataSeparated(StrideColorMode colorMode = StrideColorMode.RGB)
+        /// <returns>All cached points with separate arrays (Positions, Colors, Intensities, etc.)</returns>
+        public StrideCacheData GetCacheDataSeparated()
         {
-            return cache.GetCacheDataSeparated(colorMode);
+            return cache.GetCacheDataSeparated();
         }
 
         /// <summary>
@@ -322,57 +332,56 @@ namespace Copc.Cache
         /// Does not cache the points.
         /// </summary>
         /// <param name="nodes">Nodes to get points from</param>
-        /// <param name="colorMode">Color mode for conversion</param>
         /// <returns>Points in Stride format</returns>
-        public StridePoint[] GetStridePointsFromNodes(IEnumerable<Node> nodes, StrideColorMode colorMode = StrideColorMode.RGB)
+        public StridePoint[] GetStridePointsFromNodes(IEnumerable<Node> nodes)
         {
             var copcPoints = GetPointsFromNodes(nodes);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
         }
 
         /// <summary>
         /// Gets points in a box and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInBox(Box box, double resolution = 0, StrideColorMode colorMode = StrideColorMode.RGB)
+        public StridePoint[] GetStridePointsInBox(Box box, double resolution = 0)
         {
             var copcPoints = GetPointsInBox(box, resolution);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
         }
 
         /// <summary>
         /// Gets points in a frustum and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInFrustum(Frustum frustum, double resolution = 0, StrideColorMode colorMode = StrideColorMode.RGB)
+        public StridePoint[] GetStridePointsInFrustum(Frustum frustum, double resolution = 0)
         {
             var copcPoints = GetPointsInFrustum(frustum, resolution);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
         }
 
         /// <summary>
         /// Gets points in a frustum (from matrix) and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInFrustum(double[] viewProjectionMatrix, double resolution = 0, StrideColorMode colorMode = StrideColorMode.RGB)
+        public StridePoint[] GetStridePointsInFrustum(double[] viewProjectionMatrix, double resolution = 0)
         {
             var copcPoints = GetPointsInFrustum(viewProjectionMatrix, resolution);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
         }
 
         /// <summary>
         /// Gets points in a radius and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInRadius(Sphere sphere, double resolution = 0, StrideColorMode colorMode = StrideColorMode.RGB)
+        public StridePoint[] GetStridePointsInRadius(Sphere sphere, double resolution = 0)
         {
             var copcPoints = GetPointsInRadius(sphere, resolution);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
         }
 
         /// <summary>
         /// Gets points in a radius and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInRadius(double centerX, double centerY, double centerZ, double radius, double resolution = 0, StrideColorMode colorMode = StrideColorMode.RGB)
+        public StridePoint[] GetStridePointsInRadius(double centerX, double centerY, double centerZ, double radius, double resolution = 0)
         {
             var copcPoints = GetPointsInRadius(centerX, centerY, centerZ, radius, resolution);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
         }
 
         public void Dispose()

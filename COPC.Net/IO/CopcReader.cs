@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Copc.Cache;
 using Copc.Geometry;
 using Copc.Hierarchy;
 using Copc.Utils;
@@ -735,6 +736,16 @@ namespace Copc.IO
             var allNodes = GetAllNodes();
             
             return allNodes.Where(n => n.Key.D == depth).ToList();
+        }
+
+        /// <summary>
+        /// Gets metadata about all available point attributes in the point cloud.
+        /// Useful for setting up rendering pipeline without loading actual point data.
+        /// </summary>
+        /// <returns>Metadata describing all available attributes, their types, and ranges</returns>
+        public PointCloudAttributeMetadata GetAttributeMetadata()
+        {
+            return PointAttributeMetadataExtractor.ExtractFromHeader(Config.LasHeader);
         }
 
         public void Dispose()

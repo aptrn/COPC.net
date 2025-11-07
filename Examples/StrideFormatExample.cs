@@ -26,6 +26,20 @@ namespace Copc.Examples
                             $"Y[{header.MinY:F2}, {header.MaxY:F2}], " +
                             $"Z[{header.MinZ:F2}, {header.MaxZ:F2}]\n");
 
+            // ========================================
+            // Get attribute metadata BEFORE loading any points
+            // ========================================
+            Console.WriteLine("=== Available Attributes (Metadata) ===\n");
+            
+            var metadata = cachedReader.GetAttributeMetadata();
+            Console.WriteLine(metadata);
+            Console.WriteLine($"\nAll attributes:");
+            foreach (var attr in metadata.Attributes)
+            {
+                Console.WriteLine($"  • {attr}");
+            }
+            Console.WriteLine();
+
             // Query some data to populate cache
             double centerX = (header.MinX + header.MaxX) / 2;
             double centerY = (header.MinY + header.MaxY) / 2;
@@ -44,9 +58,9 @@ namespace Copc.Examples
             // ========================================
             // Example 1: Get all cached data
             // ========================================
-            Console.WriteLine("=== Example 1: Get All Cached Data (RGB Mode) ===\n");
+            Console.WriteLine("=== Example 1: Get All Cached Data ===\n");
             
-            var strideData = cachedReader.GetCacheData(StrideColorMode.RGB);
+            var strideData = cachedReader.GetCacheData();
             Console.WriteLine($"Stride data: {strideData.Count:N0} points");
             Console.WriteLine($"Memory: {strideData.MemorySize / 1024.0 / 1024.0:F2} MB");
 
@@ -55,85 +69,77 @@ namespace Copc.Examples
             for (int i = 0; i < Math.Min(5, strideData.Count); i++)
             {
                 var p = strideData.Points[i];
-                Console.WriteLine($"  [{i}] {p}");
+                Console.WriteLine($"  [{i}] Pos({p.Position.X:F2}, {p.Position.Y:F2}, {p.Position.Z:F2}, {p.Position.W})");
+                Console.WriteLine($"       Color({p.Color.X:F3}, {p.Color.Y:F3}, {p.Color.Z:F3}, {p.Color.W})");
+                Console.WriteLine($"       Intensity={p.Intensity:F3}, Class={p.Classification}, Return={p.ReturnNumber}/{p.NumberOfReturns}");
             }
 
-            // Verify Vector4 format
+            // Verify format
             Console.WriteLine("\nVerifying Stride format:");
             var firstPoint = strideData.Points[0];
             Console.WriteLine($"  Position.W = {firstPoint.Position.W} (should be 1.0)");
             Console.WriteLine($"  Color.W = {firstPoint.Color.W} (should be 1.0)");
+            Console.WriteLine($"  All extra attributes are float32");
             Console.WriteLine($"  ✓ Format verified!");
 
             // ========================================
-            // Example 2: Different color modes
+            // Example 2: Separated arrays for GPU upload
             // ========================================
-            Console.WriteLine("\n=== Example 2: Different Color Modes ===\n");
+            Console.WriteLine("\n=== Example 2: Separated Arrays (GPU-Ready) ===\n");
 
-            var colorModes = new[]
-            {
-                StrideColorMode.RGB,
-                StrideColorMode.Intensity,
-                StrideColorMode.Classification,
-                StrideColorMode.Elevation
-            };
-
-            foreach (var mode in colorModes)
-            {
-                var data = cachedReader.GetCacheData(mode);
-                var sample = data.Points[0];
-                
-                Console.WriteLine($"{mode} mode:");
-                Console.WriteLine($"  Position: ({sample.Position.X:F2}, {sample.Position.Y:F2}, {sample.Position.Z:F2}, {sample.Position.W:F1})");
-                Console.WriteLine($"  Color:    ({sample.Color.X:F3}, {sample.Color.Y:F3}, {sample.Color.Z:F3}, {sample.Color.W:F1})");
-            }
-
-            // ========================================
-            // Example 3: Separated arrays for GPU upload
-            // ========================================
-            Console.WriteLine("\n=== Example 3: Separated Arrays (GPU-Ready) ===\n");
-
-            var separatedData = cachedReader.GetCacheDataSeparated(StrideColorMode.RGB);
-            Console.WriteLine($"Generated separate arrays:");
-            Console.WriteLine($"  Positions: {separatedData.Positions.Length:N0} Vector4s");
-            Console.WriteLine($"  Colors:    {separatedData.Colors.Length:N0} Vector4s");
-            Console.WriteLine($"\nReady for GPU buffer upload:");
-            Console.WriteLine($"  glBufferData(GL_ARRAY_BUFFER, positions, GL_STATIC_DRAW);");
-            Console.WriteLine($"  glBufferData(GL_ARRAY_BUFFER, colors, GL_STATIC_DRAW);");
+            var separatedData = cachedReader.GetCacheDataSeparated();
+            Console.WriteLine($"Generated separate arrays for all attributes:");
+            Console.WriteLine($"  Positions:        {separatedData.Positions!.Length:N0} Vector4s");
+            Console.WriteLine($"  Colors:           {separatedData.Colors!.Length:N0} Vector4s");
+            Console.WriteLine($"  Intensities:      {separatedData.Intensities!.Length:N0} floats");
+            Console.WriteLine($"  Classifications:  {separatedData.Classifications!.Length:N0} floats");
+            Console.WriteLine($"  ReturnNumbers:    {separatedData.ReturnNumbers!.Length:N0} floats");
+            Console.WriteLine($"  NumberOfReturns:  {separatedData.NumberOfReturns!.Length:N0} floats");
+            Console.WriteLine($"  ScanAngles:       {separatedData.ScanAngles!.Length:N0} floats");
+            Console.WriteLine($"  UserData:         {separatedData.UserData!.Length:N0} floats");
+            Console.WriteLine($"  PointSourceIds:   {separatedData.PointSourceIds!.Length:N0} floats");
+            Console.WriteLine($"  GpsTimes:         {separatedData.GpsTimes!.Length:N0} floats");
+            
+            Console.WriteLine($"\nReady for GPU vertex attribute buffers:");
+            Console.WriteLine($"  glBufferData(POSITION_BUFFER, positions, GL_STATIC_DRAW);");
+            Console.WriteLine($"  glBufferData(COLOR_BUFFER, colors, GL_STATIC_DRAW);");
+            Console.WriteLine($"  glBufferData(INTENSITY_BUFFER, intensities, GL_STATIC_DRAW);");
+            Console.WriteLine($"  // ... and so on for each attribute");
 
             // Show memory layout
             Console.WriteLine($"\nMemory layout per point:");
-            Console.WriteLine($"  Position: 4 × float (16 bytes)");
-            Console.WriteLine($"  Color:    4 × float (16 bytes)");
-            Console.WriteLine($"  Total:    32 bytes per point");
-            Console.WriteLine($"  Buffer size: {separatedData.Count * 32:N0} bytes ({separatedData.Count * 32 / 1024.0 / 1024.0:F2} MB)");
+            Console.WriteLine($"  Position:       4 × float (16 bytes) - Vector4");
+            Console.WriteLine($"  Color:          4 × float (16 bytes) - Vector4");
+            Console.WriteLine($"  Intensity:      1 × float (4 bytes)");
+            Console.WriteLine($"  Classification: 1 × float (4 bytes)");
+            Console.WriteLine($"  + 8 more floats (32 bytes)");
+            Console.WriteLine($"  Total:          ~72 bytes per point");
 
             // ========================================
-            // Example 4: Direct query to Stride format
+            // Example 3: Direct query to Stride format
             // ========================================
-            Console.WriteLine("\n=== Example 4: Direct Query to Stride Format ===\n");
+            Console.WriteLine("\n=== Example 3: Direct Query to Stride Format ===\n");
 
-            // Query and convert in one step (doesn't use cache)
-            var stridePoints = cachedReader.GetStridePointsInBox(box, resolution: 0, StrideColorMode.Classification);
+            // Query and convert in one step (uses cache)
+            var stridePoints = cachedReader.GetStridePointsInBox(box, resolution: 0);
             Console.WriteLine($"Direct query: {stridePoints.Length:N0} points in Stride format");
-            Console.WriteLine($"Color mode: Classification");
-            Console.WriteLine($"\nSample classification colors:");
+            Console.WriteLine($"\nSample of different classification values:");
             
             var classifications = stridePoints
-                .GroupBy(p => $"({p.Color.X:F2}, {p.Color.Y:F2}, {p.Color.Z:F2})")
-                .Select(g => new { Color = g.Key, Count = g.Count() })
+                .GroupBy(p => p.Classification)
+                .Select(g => new { Class = g.Key, Count = g.Count() })
                 .OrderByDescending(x => x.Count)
                 .Take(5);
 
             foreach (var c in classifications)
             {
-                Console.WriteLine($"  RGB {c.Color}: {c.Count:N0} points");
+                Console.WriteLine($"  Classification {c.Class}: {c.Count:N0} points");
             }
 
             // ========================================
-            // Example 5: Frustum query with Stride output
+            // Example 4: Frustum query with Stride output
             // ========================================
-            Console.WriteLine("\n=== Example 5: Frustum Query with Stride Output ===\n");
+            Console.WriteLine("\n=== Example 4: Frustum Query with Stride Output ===\n");
 
             // Create a simple view-projection matrix (looking at center from above)
             var viewMatrix = Matrix.LookAtRH(
@@ -161,16 +167,16 @@ namespace Copc.Examples
                 }
             }
 
-            var frustumPoints = cachedReader.GetStridePointsInFrustum(vpArray, resolution: 0, StrideColorMode.RGB);
+            var frustumPoints = cachedReader.GetStridePointsInFrustum(vpArray, resolution: 0);
             Console.WriteLine($"Frustum query: {frustumPoints.Length:N0} visible points");
             Console.WriteLine($"Camera position: ({centerX:F2}, {centerY:F2}, {centerZ + size:F2})");
             Console.WriteLine($"Looking at: ({centerX:F2}, {centerY:F2}, {centerZ:F2})");
             Console.WriteLine($"\n✓ Points ready for rendering!");
 
             // ========================================
-            // Example 6: Performance statistics
+            // Example 5: Performance statistics
             // ========================================
-            Console.WriteLine("\n=== Example 6: Cache Performance ===\n");
+            Console.WriteLine("\n=== Example 5: Cache Performance ===\n");
 
             var cacheStats = cachedReader.Cache.GetStatistics();
             Console.WriteLine(cacheStats);
