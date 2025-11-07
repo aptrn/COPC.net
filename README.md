@@ -62,9 +62,3 @@ foreach (var node in nodesInRadius)
 ```
 
 See the `Examples` project for more detailed usage examples.
-
-## Documentation
-
-- [README_Radius.md](README_Radius.md) - Radius query documentation and examples
-- [README_Frustum.md](README_Frustum.md) - Frustum query documentation and examples
-- [API.md](COPC.Net/API.md) - Complete API reference
