@@ -280,6 +280,17 @@ namespace Copc.Examples
                         CacheExample.Run(args[1]);
                         break;
 
+                    case "cache-heavy":
+                        // cache-heavy <file> [passes]
+                        if (args.Length < 2)
+                        {
+                            Console.WriteLine("Usage: Examples cache-heavy <copc-file> [passes]");
+                            return;
+                        }
+                        int passes = args.Length >= 3 ? int.Parse(args[2]) : 3;
+                        CacheHeavyExample.Run(args[1], passes);
+                        break;
+
                     case "stride":
                         // stride <file>
                         if (args.Length < 2)
@@ -321,6 +332,7 @@ namespace Copc.Examples
             Console.WriteLine("  Examples lazperf-test <copc-file>");
             Console.WriteLine("  Examples chunk-decompress <copc-file>");
             Console.WriteLine("  Examples cache <copc-file>");
+            Console.WriteLine("  Examples cache-heavy <copc-file> [passes]");
             Console.WriteLine("  Examples stride <copc-file>");
             Console.WriteLine("\nExamples:");
             Console.WriteLine("  Examples random data.copc.laz 5");
@@ -356,6 +368,7 @@ namespace Copc.Examples
             Console.WriteLine("  lazperf-test    - Test lazperf decompression on root node and print XYZ coords");
             Console.WriteLine("  chunk-decompress - Comprehensive chunk decompression examples");
             Console.WriteLine("  cache           - Demonstrate smart caching system for efficient data access");
+            Console.WriteLine("  cache-heavy     - Stress test cache with 8GB and repeated loads");
             Console.WriteLine("  stride          - Export cached data in Stride engine format (Vector4 positions/colors)");
         }
 
