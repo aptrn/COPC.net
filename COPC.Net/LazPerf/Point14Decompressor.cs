@@ -37,10 +37,9 @@ namespace Copc.LazPerf
         // NIR decoder (for format 8)
         private ArithmeticDecoder? _nirDecoder;
         
-        // Extra bytes decoder
-        private ArithmeticDecoder? _extraBytesDecoder;
-        
-        private bool _decodersInitialized = false;
+		// Extra bytes decoders (one per extra byte)
+		private ArithmeticDecoder?[]? _extraBytesDecoders;
+		
         
         // RGB decompressor contexts (for format 7/8)
         private RgbContext[]? _rgbContexts;
@@ -144,6 +143,11 @@ namespace Copc.LazPerf
             // GPS time change flag
             public bool GpsTimeChange;
 
+			// Extra bytes context
+			public bool HaveLastExtra;
+			public byte[]? LastExtraBytes;
+			public ArithmeticModel[]? ExtraByteModels;
+
             public ChannelContext()
             {
                 ChangedValuesModel = new List<ArithmeticModel>();
@@ -190,7 +194,7 @@ namespace Copc.LazPerf
                 PointSourceIdDecomp.Init();
                 GpsTimeDecomp.Init();
 
-                HaveLast = false;
+				HaveLast = false;
                 Last = new LasPoint14();
                 LastIntensity = new ushort[8];
                 LastZ = new int[8];
@@ -198,6 +202,8 @@ namespace Copc.LazPerf
                 LastGpsTimeDiff = new int[4];
                 MultiExtremeCounter = new int[4];
                 GpsTimeChange = false;
+
+				HaveLastExtra = false;
                 
                 // Initialize streaming medians for X/Y (12 contexts)
                 LastXDiffMedian5 = new StreamingMedian<int>[12];
@@ -213,7 +219,7 @@ namespace Copc.LazPerf
         private readonly List<ChannelContext> _contexts;
         private int _lastChannel;
 
-        public Point14Decompressor(IInStream rawStream, int pointFormat, int extraByteCount = 0)
+		public Point14Decompressor(IInStream rawStream, int pointFormat, int extraByteCount = 0)
         {
             _rawStream = rawStream;
             _pointFormat = pointFormat;
@@ -222,7 +228,7 @@ namespace Copc.LazPerf
             
             // Initialize contexts for up to 4 scanner channels
             for (int i = 0; i < 4; i++)
-                _contexts.Add(new ChannelContext());
+				_contexts.Add(new ChannelContext());
             
             // Initialize RGB contexts for format 7/8
             if (_pointFormat == 7 || _pointFormat == 8)
@@ -231,9 +237,21 @@ namespace Copc.LazPerf
                 for (int i = 0; i < 4; i++)
                     _rgbContexts[i] = new RgbContext();
             }
+
+			// Initialize per-channel extra byte state if needed
+			if (_extraByteCount > 0)
+			{
+				for (int i = 0; i < 4; i++)
+				{
+					_contexts[i].LastExtraBytes = new byte[_extraByteCount];
+					_contexts[i].ExtraByteModels = new ArithmeticModel[_extraByteCount];
+					for (int b = 0; b < _extraByteCount; b++)
+						_contexts[i].ExtraByteModels[b] = new ArithmeticModel(256);
+				}
+				_extraBytesDecoders = new ArithmeticDecoder?[_extraByteCount];
+			}
             
-            _lastChannel = -1;  // -1 means no points read yet
-            _decodersInitialized = false;
+			_lastChannel = -1;  // -1 means no points read yet
         }
         
         /// <summary>
@@ -276,16 +294,16 @@ namespace Copc.LazPerf
             if (_pointFormat == 8)
                 nirSizeBytes = _rawStream.ReadInt();
 
-            // Extra bytes sizes: one size per extra byte
-            uint[]? extraSizes = null;
-            if (_extraByteCount > 0)
-            {
-                extraSizes = new uint[_extraByteCount];
-                for (int i = 0; i < _extraByteCount; i++)
-                    extraSizes[i] = _rawStream.ReadInt();
-            }
+			// Extra bytes sizes: one size per extra byte
+			uint[]? extraSizes = null;
+			if (_extraByteCount > 0)
+			{
+				extraSizes = new uint[_extraByteCount];
+				for (int i = 0; i < _extraByteCount; i++)
+					extraSizes[i] = _rawStream.ReadInt();
+			}
 
-            // Initialize decoders by consuming stream data in the same order
+				// Initialize decoders by consuming stream data in the same order
             _xyDecoder = CreateDecoderForStream(_rawStream, (int)xySizeBytes);
             _zDecoder = CreateDecoderForStream(_rawStream, (int)zSizeBytes);
             _classDecoder = CreateDecoderForStream(_rawStream, (int)classSizeBytes);
@@ -302,21 +320,16 @@ namespace Copc.LazPerf
             if (_pointFormat == 8)
                 _nirDecoder = CreateDecoderForStream(_rawStream, (int)nirSizeBytes);
 
-            // Consume extra byte streams to advance the input, even if we don't decode them yet
-            if (extraSizes != null)
-            {
-                for (int i = 0; i < extraSizes.Length; i++)
-                {
-                    int sz = (int)extraSizes[i];
-                    if (sz > 0)
-                    {
-                        byte[] skip = new byte[sz];
-                        _rawStream.GetBytes(skip, sz);
-                    }
-                }
-            }
+				// Initialize extra byte decoders (one per extra byte stream)
+			if (extraSizes != null && _extraBytesDecoders != null)
+			{
+				for (int i = 0; i < extraSizes.Length; i++)
+				{
+					int sz = (int)extraSizes[i];
+					_extraBytesDecoders[i] = CreateDecoderForStream(_rawStream, sz);
+				}
+			}
 
-            _decodersInitialized = true;
         }
         
         /// <summary>
@@ -390,13 +403,14 @@ namespace Copc.LazPerf
                     DebugLog($"[DEBUG] Read first NIR bytes");
                 }
                 
-                // For extra bytes, the first 'extra' block is stored raw as well
-                if (_extraByteCount > 0)
-                {
-                    var firstExtra = new byte[_extraByteCount];
-                    _rawStream.GetBytes(firstExtra, _extraByteCount);
-                    DebugLog($"[DEBUG] Read first ExtraBytes ({_extraByteCount} bytes)");
-                }
+				// For extra bytes, the first 'extra' block is stored raw as well
+				byte[]? firstExtra = null;
+				if (_extraByteCount > 0)
+				{
+					firstExtra = new byte[_extraByteCount];
+					_rawStream.GetBytes(firstExtra, _extraByteCount);
+					DebugLog($"[DEBUG] Read first ExtraBytes ({_extraByteCount} bytes)");
+				}
                 
                 // Determine channel from first point
                 int firstChannel = firstPoint.ScannerChannel;
@@ -418,17 +432,29 @@ namespace Copc.LazPerf
                 InitializeDecoders();
                 
                 // Pack and return first point - include RGB if format 7/8
-                int totalSize = 30;
-                if (_pointFormat == 7) totalSize = 36; // 30 + 6 RGB
-                if (_pointFormat == 8) totalSize = 38; // 30 + 6 RGB + 2 NIR
-                
-                byte[] firstResult = new byte[totalSize];
+				int baseSize = 30;
+				if (_pointFormat == 7) baseSize = 36; // 30 + 6 RGB
+				if (_pointFormat == 8) baseSize = 38; // 30 + 6 RGB + 2 NIR
+				int totalSize = baseSize + (_extraByteCount > 0 ? _extraByteCount : 0);
+				
+				byte[] firstResult = new byte[totalSize];
                 firstPoint.Pack(firstResult, 0);
                 
                 if (firstRGB != null)
-                    Array.Copy(firstRGB, 0, firstResult, 30, 6);
+					Array.Copy(firstRGB, 0, firstResult, 30, 6);
                 if (firstNIR != null)
-                    Array.Copy(firstNIR, 0, firstResult, 36, 2);
+					Array.Copy(firstNIR, 0, firstResult, 36, 2);
+
+				// Stash first extra bytes into channel context and append to output
+				if (firstExtra != null)
+				{
+					if (firstCtx.LastExtraBytes != null)
+					{
+						Array.Copy(firstExtra, 0, firstCtx.LastExtraBytes, 0, _extraByteCount);
+						firstCtx.HaveLastExtra = true;
+					}
+					Array.Copy(firstExtra, 0, firstResult, baseSize, _extraByteCount);
+				}
                 
                 return firstResult;
             }
@@ -486,7 +512,9 @@ namespace Copc.LazPerf
             uint r = ctx.Last.ReturnNumber;
             if (nrChanges)
                 n = _xyDecoder.DecodeSymbol(ctx.NumberOfReturnsModel[(int)(ctx.Last.NumberOfReturns > 15 ? 15 : ctx.Last.NumberOfReturns)]);
-            ctx.Last.Returns = (byte)((n << 4) | (ctx.Last.ReturnNumber & 0xF));
+			uint returnsUpper = ((n & 0xFu) << 4);
+			uint returnsLower = ((uint)ctx.Last.ReturnNumber) & 0xFu;
+			ctx.Last.Returns = (byte)(returnsUpper | returnsLower);
 
             bool rnIncrements = rnPlus && !rnMinus;
             bool rnDecrements = rnMinus && !rnPlus;
@@ -583,18 +611,19 @@ namespace Copc.LazPerf
 
             var point = ctx.Last;
 
-            // Pack point to bytes - size depends on format
-            int resultSize = 30;
-            if (_pointFormat == 7) resultSize = 36; // 30 + 6 RGB
-            if (_pointFormat == 8) resultSize = 38; // 30 + 6 RGB + 2 NIR
-            
-            byte[] result = new byte[resultSize];
+			// Pack point to bytes - size depends on format (+ extra bytes if present)
+			int baseSize2 = 30;
+			if (_pointFormat == 7) baseSize2 = 36; // 30 + 6 RGB
+			if (_pointFormat == 8) baseSize2 = 38; // 30 + 6 RGB + 2 NIR
+			int totalSize2 = baseSize2 + (_extraByteCount > 0 ? _extraByteCount : 0);
+			
+			byte[] result = new byte[totalSize2];
             point.Pack(result, 0);
             
             // Decompress RGB if format 7/8
             if (_pointFormat == 7 || _pointFormat == 8)
             {
-                DecompressRgb(sc, result, 30);
+				DecompressRgb(sc, result, 30);
             }
             
             // Decompress NIR if format 8
@@ -603,6 +632,41 @@ namespace Copc.LazPerf
                 // NIR decompression would go here
                 // For now, just leave it as zeros
             }
+			
+			// Decompress/append extra bytes if present
+			if (_extraByteCount > 0 && _extraBytesDecoders != null)
+			{
+				var ctxExtra = _contexts[sc];
+				// If switching channels and this channel has no last extra yet, seed from previous channel
+				if (!ctxExtra.HaveLastExtra)
+				{
+					ctxExtra.HaveLastExtra = true;
+					if (_contexts[_lastChannel].LastExtraBytes != null && ctxExtra.LastExtraBytes != null)
+					{
+						var prevExtra = _contexts[_lastChannel].LastExtraBytes!;
+						var currExtra = ctxExtra.LastExtraBytes!;
+						Array.Copy(prevExtra, currExtra, _extraByteCount);
+					}
+				}
+				int extraOffset = baseSize2;
+				for (int i = 0; i < _extraByteCount; i++)
+				{
+					byte val;
+					var dec = _extraBytesDecoders[i];
+					if (dec != null && ctxExtra.ExtraByteModels != null && ctxExtra.LastExtraBytes != null)
+					{
+						uint diff = dec.DecodeSymbol(ctxExtra.ExtraByteModels[i]);
+						val = (byte)(ctxExtra.LastExtraBytes[i] + (byte)diff);
+						ctxExtra.LastExtraBytes[i] = val;
+					}
+					else
+					{
+						// No stream data - repeat last
+						val = ctxExtra.LastExtraBytes != null ? ctxExtra.LastExtraBytes[i] : (byte)0;
+					}
+					result[extraOffset + i] = val;
+				}
+			}
             
             return result;
         }

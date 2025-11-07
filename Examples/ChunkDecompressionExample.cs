@@ -79,7 +79,8 @@ namespace Copc.Examples
             for (int i = 0; i < pointsToShow; i++)
             {
                 var p = points[i];
-                Console.WriteLine($"  Point {i}: ({p.X:F3}, {p.Y:F3}, {p.Z:F3}) Intensity={p.Intensity} Class={p.Classification}");
+                var extraInfo = PointPrintHelper.FormatExtraDimensions(p, reader.Config.ExtraDimensions);
+                Console.WriteLine($"  Point {i}: ({p.X:F3}, {p.Y:F3}, {p.Z:F3}) Intensity={p.Intensity} Class={p.Classification}{extraInfo}");
             }
         }
 

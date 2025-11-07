@@ -107,6 +107,7 @@ namespace Copc.Examples
                     return;
                 }
 
+                // Note: LazPerf decompression example doesn't have access to CopcPoint, so extra dimensions not shown here
                 Console.WriteLine($"Point {i,3}: X={x,15:F6}  Y={y,15:F6}  Z={z,15:F6}  I={intensity,5}  C={classification,3}");
             }
 

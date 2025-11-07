@@ -19,14 +19,19 @@ namespace Copc.IO
         /// <param name="compressedData">Compressed chunk data</param>
         /// <param name="pointCount">Number of points in the chunk</param>
         /// <param name="header">LAS header with scale/offset information</param>
+        /// <param name="extraDimensions">Optional extra dimensions to extract</param>
         /// <returns>Array of decompressed points</returns>
-        public static CopcPoint[] DecompressChunk(int pointFormat, int pointSize, byte[] compressedData, int pointCount, LasHeader header)
+        public static CopcPoint[] DecompressChunk(int pointFormat, int pointSize, byte[] compressedData, int pointCount, LasHeader header, List<ExtraDimension>? extraDimensions = null)
         {
             // Use lazperf to decompress the chunk
             var decompressor = new ChunkDecompressor();
             decompressor.Open(pointFormat, pointSize, compressedData);
 
             var points = new CopcPoint[pointCount];
+            
+            // Calculate where extra bytes start
+            int standardSize = GetStandardPointSize(pointFormat);
+            int extraByteSize = pointSize - standardSize;
             
             for (int i = 0; i < pointCount; i++)
             {
@@ -55,12 +60,37 @@ namespace Copc.IO
                     default:
                         throw new NotImplementedException($"Point format {pointFormat} decompression not implemented");
                 }
+
+                // Extract extra bytes if present
+                if (extraByteSize > 0 && pointData.Length > standardSize)
+                {
+                    point.ExtraBytes = new byte[extraByteSize];
+                    Array.Copy(pointData, standardSize, point.ExtraBytes, 0, extraByteSize);
+                }
                 
                 points[i] = point;
             }
 
             decompressor.Close();
             return points;
+        }
+
+        /// <summary>
+        /// Gets the standard size of a point record for a given format (without extra bytes)
+        /// </summary>
+        private static int GetStandardPointSize(int pointFormat)
+        {
+            return pointFormat switch
+            {
+                0 => 20,
+                1 => 28,
+                2 => 26,
+                3 => 34,
+                6 => 30,
+                7 => 36,
+                8 => 38,
+                _ => throw new NotImplementedException($"Point format {pointFormat} size not defined")
+            };
         }
 
         private static CopcPoint DecompressFormat0(byte[] pointData, LasHeader header)

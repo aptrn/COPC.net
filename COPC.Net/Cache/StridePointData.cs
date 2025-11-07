@@ -64,11 +64,20 @@ namespace Copc.Cache
         public float GpsTime;
 
         /// <summary>
+        /// Extra dimension values (from Extra Bytes VLR), stored as Dictionary[dimension_name, float32[]]
+        /// Each extra dimension may have 1-3 components.
+        /// For scalar_* fields, this will typically be a single float32 value.
+        /// </summary>
+        public Dictionary<string, float[]>? ExtraDimensions;
+
+        /// <summary>
         /// Creates a StridePoint from a CopcPoint.
         /// </summary>
-        public static StridePoint FromCopcPoint(CopcPoint point)
+        /// <param name="point">The CopcPoint to convert</param>
+        /// <param name="extraDimDefinitions">Optional extra dimension definitions for parsing ExtraBytes</param>
+        public static StridePoint FromCopcPoint(CopcPoint point, List<ExtraDimension>? extraDimDefinitions = null)
         {
-            return new StridePoint
+            var stridePoint = new StridePoint
             {
                 Position = new Vector4(
                     (float)point.X,
@@ -92,6 +101,34 @@ namespace Copc.Cache
                 PointSourceId = point.PointSourceId,
                 GpsTime = (float)(point.GpsTime ?? 0.0)
             };
+
+            // Extract extra dimensions if present
+            if (point.ExtraBytes != null && point.ExtraBytes.Length > 0 && 
+                extraDimDefinitions != null && extraDimDefinitions.Count > 0)
+            {
+                stridePoint.ExtraDimensions = new Dictionary<string, float[]>();
+                int offset = 0;
+
+                foreach (var dim in extraDimDefinitions)
+                {
+                    try
+                    {
+                        int dimSize = dim.GetDataSize() * dim.GetComponentCount();
+                        if (offset + dimSize <= point.ExtraBytes.Length)
+                        {
+                            float[] values = dim.ExtractAsFloat32(point.ExtraBytes, offset);
+                            stridePoint.ExtraDimensions[dim.Name] = values;
+                            offset += dimSize;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Warning: Failed to extract extra dimension '{dim.Name}': {ex.Message}");
+                    }
+                }
+            }
+
+            return stridePoint;
         }
 
         public override string ToString()
@@ -139,6 +176,13 @@ namespace Copc.Cache
         public float[]? GpsTimes { get; set; }
 
         /// <summary>
+        /// Extra dimension arrays [dimension_name -> float32[num_points * num_components]]
+        /// For scalar_* fields, each array contains one float per point.
+        /// For vector fields, each array contains N floats per point (where N is component count).
+        /// </summary>
+        public Dictionary<string, float[]>? ExtraDimensionArrays { get; set; }
+
+        /// <summary>
         /// Generates separate arrays for each attribute.
         /// Useful for uploading to GPU as separate vertex attribute buffers.
         /// </summary>
@@ -173,6 +217,77 @@ namespace Copc.Cache
                 PointSourceIds[i] = p.PointSourceId;
                 GpsTimes[i] = p.GpsTime;
             }
+
+            // Generate extra dimension arrays
+            GenerateExtraDimensionArrays();
+        }
+
+        /// <summary>
+        /// Generates separate arrays for extra dimensions.
+        /// Each extra dimension gets its own array: dimension_name -> float32[]
+        /// For multi-component dimensions, the array is interleaved [x1,y1,z1, x2,y2,z2, ...]
+        /// </summary>
+        public void GenerateExtraDimensionArrays()
+        {
+            if (Points == null || Points.Length == 0)
+                return;
+
+            // Find all unique extra dimension names across all points
+            var allExtraDimNames = new HashSet<string>();
+            foreach (var point in Points)
+            {
+                if (point.ExtraDimensions != null)
+                {
+                    foreach (var dimName in point.ExtraDimensions.Keys)
+                    {
+                        allExtraDimNames.Add(dimName);
+                    }
+                }
+            }
+
+            if (allExtraDimNames.Count == 0)
+                return;
+
+            ExtraDimensionArrays = new Dictionary<string, float[]>();
+
+            foreach (var dimName in allExtraDimNames)
+            {
+                // Determine component count from first point that has this dimension
+                int componentCount = 1;
+                foreach (var point in Points)
+                {
+                    if (point.ExtraDimensions?.TryGetValue(dimName, out var values) == true)
+                    {
+                        componentCount = values.Length;
+                        break;
+                    }
+                }
+
+                // Create array for this dimension
+                var dimArray = new float[Points.Length * componentCount];
+
+                // Populate array
+                for (int i = 0; i < Points.Length; i++)
+                {
+                    if (Points[i].ExtraDimensions?.TryGetValue(dimName, out var values) == true)
+                    {
+                        for (int c = 0; c < componentCount; c++)
+                        {
+                            dimArray[i * componentCount + c] = c < values.Length ? values[c] : 0f;
+                        }
+                    }
+                    else
+                    {
+                        // Fill with zeros if dimension not present for this point
+                        for (int c = 0; c < componentCount; c++)
+                        {
+                            dimArray[i * componentCount + c] = 0f;
+                        }
+                    }
+                }
+
+                ExtraDimensionArrays[dimName] = dimArray;
+            }
         }
 
         public override string ToString()
@@ -189,7 +304,9 @@ namespace Copc.Cache
         /// <summary>
         /// Gets all cached data converted to Stride format.
         /// </summary>
-        public static StrideCacheData GetCacheData(this PointCache cache)
+        /// <param name="cache">The point cache</param>
+        /// <param name="extraDimDefinitions">Optional extra dimension definitions</param>
+        public static StrideCacheData GetCacheData(this PointCache cache, List<ExtraDimension>? extraDimDefinitions = null)
         {
             var cachedNodes = cache.GetCachedNodes();
             var allPoints = new List<StridePoint>();
@@ -199,7 +316,7 @@ namespace Copc.Cache
                 // Get the points from cache
                 if (cache.TryGetPoints(nodeInfo.Key, out var copcPoints) && copcPoints != null)
                 {
-                    var stridePoints = ConvertToStridePoints(copcPoints);
+                    var stridePoints = ConvertToStridePoints(copcPoints, extraDimDefinitions);
                     allPoints.AddRange(stridePoints);
                 }
             }
@@ -214,9 +331,11 @@ namespace Copc.Cache
         /// Gets all cached data with separate arrays for each attribute.
         /// Useful for direct GPU buffer upload as vertex attributes.
         /// </summary>
-        public static StrideCacheData GetCacheDataSeparated(this PointCache cache)
+        /// <param name="cache">The point cache</param>
+        /// <param name="extraDimDefinitions">Optional extra dimension definitions</param>
+        public static StrideCacheData GetCacheDataSeparated(this PointCache cache, List<ExtraDimension>? extraDimDefinitions = null)
         {
-            var data = GetCacheData(cache);
+            var data = GetCacheData(cache, extraDimDefinitions);
             data.GenerateSeparateArrays();
             return data;
         }
@@ -224,13 +343,15 @@ namespace Copc.Cache
         /// <summary>
         /// Converts an array of CopcPoints to StridePoints.
         /// </summary>
-        public static StridePoint[] ConvertToStridePoints(CopcPoint[] copcPoints)
+        /// <param name="copcPoints">Points to convert</param>
+        /// <param name="extraDimDefinitions">Optional extra dimension definitions</param>
+        public static StridePoint[] ConvertToStridePoints(CopcPoint[] copcPoints, List<ExtraDimension>? extraDimDefinitions = null)
         {
             var stridePoints = new StridePoint[copcPoints.Length];
 
             for (int i = 0; i < copcPoints.Length; i++)
             {
-                stridePoints[i] = StridePoint.FromCopcPoint(copcPoints[i]);
+                stridePoints[i] = StridePoint.FromCopcPoint(copcPoints[i], extraDimDefinitions);
             }
 
             return stridePoints;
@@ -239,9 +360,11 @@ namespace Copc.Cache
         /// <summary>
         /// Converts a single CopcPoint to StridePoint.
         /// </summary>
-        public static StridePoint ToStridePoint(this CopcPoint point)
+        /// <param name="point">Point to convert</param>
+        /// <param name="extraDimDefinitions">Optional extra dimension definitions</param>
+        public static StridePoint ToStridePoint(this CopcPoint point, List<ExtraDimension>? extraDimDefinitions = null)
         {
-            return StridePoint.FromCopcPoint(point);
+            return StridePoint.FromCopcPoint(point, extraDimDefinitions);
         }
     }
 }

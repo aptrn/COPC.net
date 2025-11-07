@@ -72,6 +72,19 @@ namespace Copc.Examples
                 Console.WriteLine($"  [{i}] Pos({p.Position.X:F2}, {p.Position.Y:F2}, {p.Position.Z:F2}, {p.Position.W})");
                 Console.WriteLine($"       Color({p.Color.X:F3}, {p.Color.Y:F3}, {p.Color.Z:F3}, {p.Color.W})");
                 Console.WriteLine($"       Intensity={p.Intensity:F3}, Class={p.Classification}, Return={p.ReturnNumber}/{p.NumberOfReturns}");
+                
+                // Show extra dimensions if present
+                if (p.ExtraDimensions != null && p.ExtraDimensions.Count > 0)
+                {
+                    Console.WriteLine($"       Extra Dimensions:");
+                    foreach (var dim in p.ExtraDimensions)
+                    {
+                        string values = dim.Value.Length == 1 
+                            ? $"{dim.Value[0]:F4}" 
+                            : $"[{string.Join(", ", dim.Value.Select(v => $"{v:F4}"))}]";
+                        Console.WriteLine($"         {dim.Key} = {values}");
+                    }
+                }
             }
 
             // Verify format
@@ -99,6 +112,25 @@ namespace Copc.Examples
             Console.WriteLine($"  UserData:         {separatedData.UserData!.Length:N0} floats");
             Console.WriteLine($"  PointSourceIds:   {separatedData.PointSourceIds!.Length:N0} floats");
             Console.WriteLine($"  GpsTimes:         {separatedData.GpsTimes!.Length:N0} floats");
+            
+            // Show extra dimension arrays if present
+            if (separatedData.ExtraDimensionArrays != null && separatedData.ExtraDimensionArrays.Count > 0)
+            {
+                Console.WriteLine($"\n  Extra Dimensions:");
+                foreach (var dimArray in separatedData.ExtraDimensionArrays)
+                {
+                    int componentsPerPoint = dimArray.Value.Length / separatedData.Count;
+                    string suffix = componentsPerPoint > 1 ? $" ({componentsPerPoint} × float per point)" : "";
+                    Console.WriteLine($"    {dimArray.Key}: {dimArray.Value.Length:N0} floats{suffix}");
+                    
+                    // Show a few sample values
+                    if (dimArray.Value.Length > 0)
+                    {
+                        var samples = dimArray.Value.Take(Math.Min(3 * componentsPerPoint, dimArray.Value.Length));
+                        Console.WriteLine($"      Samples: {string.Join(", ", samples.Select(v => $"{v:F4}"))}");
+                    }
+                }
+            }
             
             Console.WriteLine($"\nReady for GPU vertex attribute buffers:");
             Console.WriteLine($"  glBufferData(POSITION_BUFFER, positions, GL_STATIC_DRAW);");

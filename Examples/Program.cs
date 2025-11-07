@@ -224,17 +224,16 @@ namespace Copc.Examples
                                     int pointsToPrint = Math.Min(20, pointsInRadius.Length);
                                     Console.WriteLine($"Showing first {pointsToPrint} points:\n");
 
-                                    for (int i = 0; i < pointsToPrint; i++)
-                                    {
-                                        var p = pointsInRadius[i];
-                                        double dx = p.X - centerX;
-                                        double dy = p.Y - centerY;
-                                        double dz = p.Z - centerZ;
-                                        double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                                        
-                                        Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                                        $"Distance={distance,8:F3}m Intensity={p.Intensity,5} Class={p.Classification,3}");
-                                    }
+                    for (int i = 0; i < pointsToPrint; i++)
+                    {
+                        var p = pointsInRadius[i];
+                        double dx = p.X - centerX;
+                        double dy = p.Y - centerY;
+                        double dz = p.Z - centerZ;
+                        double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                        
+                        PointPrintHelper.PrintPointWithDistance(i, p, distance, reader.Config.ExtraDimensions);
+                    }
                                     Console.WriteLine("\n✅ Complete!");
                                 }
                             }
@@ -489,9 +488,7 @@ namespace Copc.Examples
             for (int i = 0; i < pointsToPrint; i++)
             {
                 var p = pointsInBox[i];
-                Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                $"Intensity={p.Intensity,5} Class={p.Classification,3} " +
-                                $"RGB=({p.Red},{p.Green},{p.Blue})");
+                PointPrintHelper.PrintPointWithRGB(i, p, reader.Config.ExtraDimensions);
             }
 
             // Print statistics
@@ -783,12 +780,11 @@ namespace Copc.Examples
                         int pointsToPrint = Math.Min(10, pointsInBox.Length);
                         Console.WriteLine($"Showing first {pointsToPrint} points:\n");
 
-                        for (int i = 0; i < pointsToPrint; i++)
-                        {
-                            var p = pointsInBox[i];
-                            Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                            $"Intensity={p.Intensity,5} Class={p.Classification,3}");
-                        }
+            for (int i = 0; i < pointsToPrint; i++)
+            {
+                var p = pointsInBox[i];
+                PointPrintHelper.PrintPoint(i, p, reader.Config.ExtraDimensions);
+            }
                         Console.WriteLine();
                     }
                 }
@@ -831,9 +827,7 @@ namespace Copc.Examples
             for (int i = 0; i < pointsToPrint; i++)
             {
                 var p = pointsInBox[i];
-                Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                $"Intensity={p.Intensity,5} Class={p.Classification,3} " +
-                                $"RGB=({p.Red},{p.Green},{p.Blue})");
+                PointPrintHelper.PrintPointWithRGB(i, p, reader.Config.ExtraDimensions);
             }
 
             // Print statistics
@@ -1019,9 +1013,7 @@ namespace Copc.Examples
             for (int i = 0; i < pointsToPrint; i++)
             {
                 var p = pointsInBox[i];
-                Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                $"Intensity={p.Intensity,5} Class={p.Classification,3} " +
-                                $"RGB=({p.Red},{p.Green},{p.Blue})");
+                PointPrintHelper.PrintPointWithRGB(i, p, reader.Config.ExtraDimensions);
             }
 
             // Print statistics
@@ -1184,9 +1176,7 @@ namespace Copc.Examples
             for (int i = 0; i < pointsToPrint; i++)
             {
                 var p = pointsInFrustum[i];
-                Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                $"Intensity={p.Intensity,5} Class={p.Classification,3} " +
-                                $"RGB=({p.Red},{p.Green},{p.Blue})");
+                PointPrintHelper.PrintPointWithRGB(i, p, reader.Config.ExtraDimensions);
             }
 
             // Print statistics
