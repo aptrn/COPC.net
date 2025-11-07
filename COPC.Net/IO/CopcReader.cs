@@ -423,6 +423,71 @@ namespace Copc.IO
         }
 
         /// <summary>
+        /// Generic traversal over the COPC hierarchy using delegate-based spatial and resolution checks.
+        /// See Trasversal.md: spatial check -> resolution check -> keep node; continue traversing children until no more valid entries.
+        /// </summary>
+        /// <param name="options">Traversal options including spatial predicate and desired resolution selector.</param>
+        /// <returns>List of nodes accepted by the traversal.</returns>
+        public List<Node> TraverseNodes(TraversalOptions options)
+        {
+            var results = new List<Node>();
+            var rootPage = LoadRootHierarchyPage();
+            TraversePage(rootPage, options, results);
+            return results;
+        }
+
+        private void TraversePage(Page page, TraversalOptions options, List<Node> results)
+        {
+            if (!page.Loaded)
+                LoadHierarchyPage(page);
+
+            foreach (var entry in page.Children.Values)
+            {
+                var bounds = entry.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
+                var isNode = entry is Node;
+                var pointCount = isNode ? ((Node)entry).PointCount : -1;
+
+                var ctx = new NodeTraversalContext(
+                    entry.Key,
+                    bounds,
+                    isNode,
+                    pointCount,
+                    Config.LasHeader,
+                    Config.CopcInfo
+                );
+
+                // Spatial pruning
+                if (!options.SpatialPredicate(ctx))
+                    continue;
+
+                // Resolution decision
+                double desiredResolution = options.DesiredResolution(ctx);
+                double nodeResolution = ctx.NodeResolution;
+                bool resolutionOk = desiredResolution <= 0 || nodeResolution <= desiredResolution;
+
+                if (isNode)
+                {
+                    if (resolutionOk)
+                    {
+                        results.Add((Node)entry);
+
+                        if (!options.ContinueAfterAccept)
+                            continue; // do not descend further at this key
+                    }
+                    // Nodes do not have children; nothing to descend into
+                }
+                else if (entry is Page childPage)
+                {
+                    if (!childPage.Loaded)
+                        LoadHierarchyPage(childPage);
+
+                    // Always traverse children when spatial predicate passed; resolution is applied at node level
+                    TraversePage(childPage, options, results);
+                }
+            }
+        }
+
+        /// <summary>
         /// Recursively collects all nodes from the hierarchy.
         /// </summary>
         private void CollectAllNodes(Page page, List<Node> nodes)

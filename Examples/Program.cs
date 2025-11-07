@@ -41,6 +41,15 @@ namespace Copc.Examples
             {
                 switch (command)
                 {
+                    case "traversal-presets":
+                        // traversal-presets <file>
+                        if (args.Length < 2)
+                        {
+                            Console.WriteLine("Usage: Examples traversal-presets <copc-file>");
+                            return;
+                        }
+                        TraversalPresetsExample.Run(args[1]);
+                        break;
                     case "cache-update-bench":
                         // cache-update-bench <file> [cacheMB]
                         if (args.Length < 2)
@@ -328,6 +337,7 @@ namespace Copc.Examples
         static void PrintUsage()
         {
             Console.WriteLine("Usage:");
+            Console.WriteLine("  Examples traversal-presets <copc-file>");
             Console.WriteLine("  Examples random <copc-file> <lod-depth>");
             Console.WriteLine("  Examples bbox-lod <copc-file> <lod> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");
             Console.WriteLine("  Examples bbox-res <copc-file> <resolution> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");

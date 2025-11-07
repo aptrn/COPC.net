@@ -212,6 +212,14 @@ namespace Copc.Cache
         }
 
         /// <summary>
+        /// Traverses the hierarchy using generic spatial and resolution delegates.
+        /// </summary>
+        public List<Node> TraverseNodes(TraversalOptions options)
+        {
+            return reader.TraverseNodes(options);
+        }
+
+        /// <summary>
         /// Gets all nodes at a specific depth/layer.
         /// </summary>
         public List<Node> GetNodesAtLayer(int layer)
