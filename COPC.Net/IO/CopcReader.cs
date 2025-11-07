@@ -475,7 +475,21 @@ namespace Copc.IO
         /// <returns>Array of decompressed points</returns>
         public CopcPoint[] GetPointsFromNode(Node node)
         {
+            // Skip nodes with no points or no data
+            if (node.PointCount == 0 || node.ByteSize == 0)
+            {
+                return new CopcPoint[0];
+            }
+
             var compressedData = GetPointDataCompressed(node);
+            
+            // Additional check: compressed data must have some minimum size
+            if (compressedData == null || compressedData.Length < 8)
+            {
+                Console.WriteLine($"Warning: Node {node.Key} has invalid compressed data size: {compressedData?.Length ?? 0} bytes");
+                return new CopcPoint[0];
+            }
+
             return LazDecompressor.DecompressChunk(
                 Config.LasHeader.BasePointFormat,
                 Config.LasHeader.PointDataRecordLength,
@@ -494,10 +508,24 @@ namespace Copc.IO
         public CopcPoint[] GetPointsFromNodes(IEnumerable<Node> nodes)
         {
             var allPoints = new List<CopcPoint>();
+            int failedNodes = 0;
             foreach (var node in nodes)
             {
-                var points = GetPointsFromNode(node);
-                allPoints.AddRange(points);
+                try
+                {
+                    var points = GetPointsFromNode(node);
+                    allPoints.AddRange(points);
+                }
+                catch (Exception ex)
+                {
+                    failedNodes++;
+                    Console.WriteLine($"Warning: Failed to decompress node {node.Key}: {ex.Message}");
+                    // Continue with other nodes
+                }
+            }
+            if (failedNodes > 0)
+            {
+                Console.WriteLine($"Warning: {failedNodes} node(s) failed to decompress and were skipped");
             }
             return allPoints.ToArray();
         }
