@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Copc
 {
@@ -26,6 +27,12 @@ namespace Copc
         /// WKT (Well-Known Text) spatial reference system string (optional).
         /// </summary>
         public string? Wkt { get; set; }
+
+        /// <summary>
+        /// Extra dimensions defined in the Extra Bytes VLR (optional).
+        /// These are custom per-point attributes beyond the standard LAS fields.
+        /// </summary>
+        public List<ExtraDimension> ExtraDimensions { get; set; } = new List<ExtraDimension>();
 
         public CopcConfig()
         {

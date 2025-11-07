@@ -126,8 +126,7 @@ namespace Copc.Examples
                     for (int i = 0; i < pointsToPrint; i++)
                     {
                         var p = allPoints[i];
-                        Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                        $"Intensity={p.Intensity,5} Class={p.Classification,3}");
+                        PointPrintHelper.PrintPoint(i, p, reader.Config.ExtraDimensions);
                     }
                     Console.WriteLine();
                 }

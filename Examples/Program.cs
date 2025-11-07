@@ -224,17 +224,16 @@ namespace Copc.Examples
                                     int pointsToPrint = Math.Min(20, pointsInRadius.Length);
                                     Console.WriteLine($"Showing first {pointsToPrint} points:\n");
 
-                                    for (int i = 0; i < pointsToPrint; i++)
-                                    {
-                                        var p = pointsInRadius[i];
-                                        double dx = p.X - centerX;
-                                        double dy = p.Y - centerY;
-                                        double dz = p.Z - centerZ;
-                                        double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                                        
-                                        Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                                        $"Distance={distance,8:F3}m Intensity={p.Intensity,5} Class={p.Classification,3}");
-                                    }
+                    for (int i = 0; i < pointsToPrint; i++)
+                    {
+                        var p = pointsInRadius[i];
+                        double dx = p.X - centerX;
+                        double dy = p.Y - centerY;
+                        double dz = p.Z - centerZ;
+                        double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                        
+                        PointPrintHelper.PrintPointWithDistance(i, p, distance, reader.Config.ExtraDimensions);
+                    }
                                     Console.WriteLine("\n✅ Complete!");
                                 }
                             }
@@ -271,6 +270,37 @@ namespace Copc.Examples
                         ChunkDecompressionExample.Run(args[1]);
                         break;
 
+                    case "cache":
+                        // cache <file>
+                        if (args.Length < 2)
+                        {
+                            Console.WriteLine("Usage: Examples cache <copc-file>");
+                            return;
+                        }
+                        CacheExample.Run(args[1]);
+                        break;
+
+                    case "cache-heavy":
+                        // cache-heavy <file> [passes]
+                        if (args.Length < 2)
+                        {
+                            Console.WriteLine("Usage: Examples cache-heavy <copc-file> [passes]");
+                            return;
+                        }
+                        int passes = args.Length >= 3 ? int.Parse(args[2]) : 3;
+                        CacheHeavyExample.Run(args[1], passes);
+                        break;
+
+                    case "stride":
+                        // stride <file>
+                        if (args.Length < 2)
+                        {
+                            Console.WriteLine("Usage: Examples stride <copc-file>");
+                            return;
+                        }
+                        StrideFormatExample.Run(args[1]);
+                        break;
+
                     default:
                         Console.WriteLine($"Unknown command: {command}");
                         PrintUsage();
@@ -301,6 +331,9 @@ namespace Copc.Examples
             Console.WriteLine("  Examples radius-compare <copc-file> <centerX> <centerY> <centerZ> <radius>");
             Console.WriteLine("  Examples lazperf-test <copc-file>");
             Console.WriteLine("  Examples chunk-decompress <copc-file>");
+            Console.WriteLine("  Examples cache <copc-file>");
+            Console.WriteLine("  Examples cache-heavy <copc-file> [passes]");
+            Console.WriteLine("  Examples stride <copc-file>");
             Console.WriteLine("\nExamples:");
             Console.WriteLine("  Examples random data.copc.laz 5");
             Console.WriteLine("  Examples bbox-lod data.copc.laz 5 -10 -10 0 10 10 50");
@@ -317,6 +350,8 @@ namespace Copc.Examples
             Console.WriteLine("  Examples radius-compare data.copc.laz 500 500 50 100");
             Console.WriteLine("  Examples lazperf-test data.copc.laz");
             Console.WriteLine("  Examples chunk-decompress data.copc.laz");
+            Console.WriteLine("  Examples cache data.copc.laz");
+            Console.WriteLine("  Examples stride data.copc.laz");
             Console.WriteLine("\nCommands:");
             Console.WriteLine("  random          - Pick a random bounding box at specified LOD and print points");
             Console.WriteLine("  bbox-lod        - Query specific bounding box at specific LOD and print points");
@@ -332,6 +367,9 @@ namespace Copc.Examples
             Console.WriteLine("  radius-compare  - Compare box vs radius query efficiency and print points");
             Console.WriteLine("  lazperf-test    - Test lazperf decompression on root node and print XYZ coords");
             Console.WriteLine("  chunk-decompress - Comprehensive chunk decompression examples");
+            Console.WriteLine("  cache           - Demonstrate smart caching system for efficient data access");
+            Console.WriteLine("  cache-heavy     - Stress test cache with 8GB and repeated loads");
+            Console.WriteLine("  stride          - Export cached data in Stride engine format (Vector4 positions/colors)");
         }
 
         static void RandomBoundingBoxExample(string copcFilePath, int targetLod)
@@ -463,9 +501,7 @@ namespace Copc.Examples
             for (int i = 0; i < pointsToPrint; i++)
             {
                 var p = pointsInBox[i];
-                Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                $"Intensity={p.Intensity,5} Class={p.Classification,3} " +
-                                $"RGB=({p.Red},{p.Green},{p.Blue})");
+                PointPrintHelper.PrintPointWithRGB(i, p, reader.Config.ExtraDimensions);
             }
 
             // Print statistics
@@ -757,12 +793,11 @@ namespace Copc.Examples
                         int pointsToPrint = Math.Min(10, pointsInBox.Length);
                         Console.WriteLine($"Showing first {pointsToPrint} points:\n");
 
-                        for (int i = 0; i < pointsToPrint; i++)
-                        {
-                            var p = pointsInBox[i];
-                            Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                            $"Intensity={p.Intensity,5} Class={p.Classification,3}");
-                        }
+            for (int i = 0; i < pointsToPrint; i++)
+            {
+                var p = pointsInBox[i];
+                PointPrintHelper.PrintPoint(i, p, reader.Config.ExtraDimensions);
+            }
                         Console.WriteLine();
                     }
                 }
@@ -805,9 +840,7 @@ namespace Copc.Examples
             for (int i = 0; i < pointsToPrint; i++)
             {
                 var p = pointsInBox[i];
-                Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                $"Intensity={p.Intensity,5} Class={p.Classification,3} " +
-                                $"RGB=({p.Red},{p.Green},{p.Blue})");
+                PointPrintHelper.PrintPointWithRGB(i, p, reader.Config.ExtraDimensions);
             }
 
             // Print statistics
@@ -993,9 +1026,7 @@ namespace Copc.Examples
             for (int i = 0; i < pointsToPrint; i++)
             {
                 var p = pointsInBox[i];
-                Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                $"Intensity={p.Intensity,5} Class={p.Classification,3} " +
-                                $"RGB=({p.Red},{p.Green},{p.Blue})");
+                PointPrintHelper.PrintPointWithRGB(i, p, reader.Config.ExtraDimensions);
             }
 
             // Print statistics
@@ -1158,9 +1189,7 @@ namespace Copc.Examples
             for (int i = 0; i < pointsToPrint; i++)
             {
                 var p = pointsInFrustum[i];
-                Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                $"Intensity={p.Intensity,5} Class={p.Classification,3} " +
-                                $"RGB=({p.Red},{p.Green},{p.Blue})");
+                PointPrintHelper.PrintPointWithRGB(i, p, reader.Config.ExtraDimensions);
             }
 
             // Print statistics

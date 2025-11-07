@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Copc.Cache;
 using Copc.Geometry;
 using Copc.Hierarchy;
 using Copc.Utils;
@@ -99,8 +100,34 @@ namespace Copc.IO
                     wkt = null;
             }
 
+            // Find Extra Bytes VLR (optional) - defines custom dimensions
+            var extraDimensions = new List<ExtraDimension>();
+            var extraBytesVlr = FindVlr(vlrs, "LASF_Spec", 4);
+            if (extraBytesVlr?.Data != null && extraBytesVlr.Data.Length > 0)
+            {
+                try
+                {
+                    extraDimensions = ExtraBytesVlrParser.Parse(extraBytesVlr.Data);
+                    if (extraDimensions.Count > 0)
+                    {
+                        Console.WriteLine($"Found {extraDimensions.Count} extra dimensions:");
+                        foreach (var dim in extraDimensions)
+                        {
+                            Console.WriteLine($"  - {dim}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Failed to parse Extra Bytes VLR: {ex.Message}");
+                }
+            }
+
             // Create config
-            var config = new CopcConfig(header, copcInfo, null, wkt);
+            var config = new CopcConfig(header, copcInfo, null, wkt)
+            {
+                ExtraDimensions = extraDimensions
+            };
 
             var reader = new CopcReader(config)
             {
@@ -495,7 +522,8 @@ namespace Copc.IO
                 Config.LasHeader.PointDataRecordLength,
                 compressedData,
                 node.PointCount,
-                Config.LasHeader
+                Config.LasHeader,
+                Config.ExtraDimensions
             );
         }
 
@@ -735,6 +763,16 @@ namespace Copc.IO
             var allNodes = GetAllNodes();
             
             return allNodes.Where(n => n.Key.D == depth).ToList();
+        }
+
+        /// <summary>
+        /// Gets metadata about all available point attributes in the point cloud.
+        /// Useful for setting up rendering pipeline without loading actual point data.
+        /// </summary>
+        /// <returns>Metadata describing all available attributes, their types, and ranges</returns>
+        public PointCloudAttributeMetadata GetAttributeMetadata()
+        {
+            return PointAttributeMetadataExtractor.ExtractFromHeader(Config.LasHeader);
         }
 
         public void Dispose()
