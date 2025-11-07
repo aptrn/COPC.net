@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using Copc.Geometry;
 using Copc.Hierarchy;
 using Copc.IO;
+using StrideVector3 = Stride.Core.Mathematics.Vector3;
+using StrideVector4 = Stride.Core.Mathematics.Vector4;
 
 namespace Copc.Cache
 {
@@ -289,6 +291,88 @@ namespace Copc.Cache
         {
             var nodes = reader.GetNodesWithinRadius(center, radius, resolution);
             return GetPointsFromNodes(nodes);
+        }
+
+        // Stride-specific methods for easy data export
+
+        /// <summary>
+        /// Gets all currently cached data in Stride engine format.
+        /// Returns points with Position and Color as Vector4 (W=1 for both).
+        /// </summary>
+        /// <param name="colorMode">Color mode for conversion (RGB, Intensity, Classification, or Elevation)</param>
+        /// <returns>All cached points in Stride format</returns>
+        public StrideCacheData GetCacheData(StrideColorMode colorMode = StrideColorMode.RGB)
+        {
+            return cache.GetCacheData(colorMode);
+        }
+
+        /// <summary>
+        /// Gets all currently cached data in Stride format with separate position and color arrays.
+        /// Useful for direct GPU buffer upload.
+        /// </summary>
+        /// <param name="colorMode">Color mode for conversion (RGB, Intensity, Classification, or Elevation)</param>
+        /// <returns>All cached points with separate Position[] and Color[] arrays</returns>
+        public StrideCacheData GetCacheDataSeparated(StrideColorMode colorMode = StrideColorMode.RGB)
+        {
+            return cache.GetCacheDataSeparated(colorMode);
+        }
+
+        /// <summary>
+        /// Gets points from nodes and immediately converts to Stride format.
+        /// Does not cache the points.
+        /// </summary>
+        /// <param name="nodes">Nodes to get points from</param>
+        /// <param name="colorMode">Color mode for conversion</param>
+        /// <returns>Points in Stride format</returns>
+        public StridePoint[] GetStridePointsFromNodes(IEnumerable<Node> nodes, StrideColorMode colorMode = StrideColorMode.RGB)
+        {
+            var copcPoints = GetPointsFromNodes(nodes);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+        }
+
+        /// <summary>
+        /// Gets points in a box and converts to Stride format.
+        /// </summary>
+        public StridePoint[] GetStridePointsInBox(Box box, double resolution = 0, StrideColorMode colorMode = StrideColorMode.RGB)
+        {
+            var copcPoints = GetPointsInBox(box, resolution);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+        }
+
+        /// <summary>
+        /// Gets points in a frustum and converts to Stride format.
+        /// </summary>
+        public StridePoint[] GetStridePointsInFrustum(Frustum frustum, double resolution = 0, StrideColorMode colorMode = StrideColorMode.RGB)
+        {
+            var copcPoints = GetPointsInFrustum(frustum, resolution);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+        }
+
+        /// <summary>
+        /// Gets points in a frustum (from matrix) and converts to Stride format.
+        /// </summary>
+        public StridePoint[] GetStridePointsInFrustum(double[] viewProjectionMatrix, double resolution = 0, StrideColorMode colorMode = StrideColorMode.RGB)
+        {
+            var copcPoints = GetPointsInFrustum(viewProjectionMatrix, resolution);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+        }
+
+        /// <summary>
+        /// Gets points in a radius and converts to Stride format.
+        /// </summary>
+        public StridePoint[] GetStridePointsInRadius(Sphere sphere, double resolution = 0, StrideColorMode colorMode = StrideColorMode.RGB)
+        {
+            var copcPoints = GetPointsInRadius(sphere, resolution);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
+        }
+
+        /// <summary>
+        /// Gets points in a radius and converts to Stride format.
+        /// </summary>
+        public StridePoint[] GetStridePointsInRadius(double centerX, double centerY, double centerZ, double radius, double resolution = 0, StrideColorMode colorMode = StrideColorMode.RGB)
+        {
+            var copcPoints = GetPointsInRadius(centerX, centerY, centerZ, radius, resolution);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, colorMode);
         }
 
         public void Dispose()
