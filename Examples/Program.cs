@@ -271,6 +271,16 @@ namespace Copc.Examples
                         ChunkDecompressionExample.Run(args[1]);
                         break;
 
+                    case "cache":
+                        // cache <file>
+                        if (args.Length < 2)
+                        {
+                            Console.WriteLine("Usage: Examples cache <copc-file>");
+                            return;
+                        }
+                        CacheExample.Run(args[1]);
+                        break;
+
                     default:
                         Console.WriteLine($"Unknown command: {command}");
                         PrintUsage();
@@ -301,6 +311,7 @@ namespace Copc.Examples
             Console.WriteLine("  Examples radius-compare <copc-file> <centerX> <centerY> <centerZ> <radius>");
             Console.WriteLine("  Examples lazperf-test <copc-file>");
             Console.WriteLine("  Examples chunk-decompress <copc-file>");
+            Console.WriteLine("  Examples cache <copc-file>");
             Console.WriteLine("\nExamples:");
             Console.WriteLine("  Examples random data.copc.laz 5");
             Console.WriteLine("  Examples bbox-lod data.copc.laz 5 -10 -10 0 10 10 50");
@@ -317,6 +328,7 @@ namespace Copc.Examples
             Console.WriteLine("  Examples radius-compare data.copc.laz 500 500 50 100");
             Console.WriteLine("  Examples lazperf-test data.copc.laz");
             Console.WriteLine("  Examples chunk-decompress data.copc.laz");
+            Console.WriteLine("  Examples cache data.copc.laz");
             Console.WriteLine("\nCommands:");
             Console.WriteLine("  random          - Pick a random bounding box at specified LOD and print points");
             Console.WriteLine("  bbox-lod        - Query specific bounding box at specific LOD and print points");
@@ -332,6 +344,7 @@ namespace Copc.Examples
             Console.WriteLine("  radius-compare  - Compare box vs radius query efficiency and print points");
             Console.WriteLine("  lazperf-test    - Test lazperf decompression on root node and print XYZ coords");
             Console.WriteLine("  chunk-decompress - Comprehensive chunk decompression examples");
+            Console.WriteLine("  cache           - Demonstrate smart caching system for efficient data access");
         }
 
         static void RandomBoundingBoxExample(string copcFilePath, int targetLod)
