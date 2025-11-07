@@ -19,6 +19,7 @@ COPC (Cloud Optimized Point Cloud) is an LAZ 1.4 file format organized as a clus
   - **Radius queries** - Query points within distance from a point (omnidirectional) (see [README_Radius.md](README_Radius.md))
 - Level-of-Detail (LOD) support with resolution filtering
 - Access point cloud hierarchy and metadata
+- **Smart caching system** - Optional RAM buffer with LRU eviction for improved performance (see [Cache README](COPC.Net/Cache/README.md))
 
 ## Requirements
 
@@ -61,4 +62,28 @@ foreach (var node in nodesInRadius)
 }
 ```
 
-See the `Examples` project for more detailed usage examples.
+### Using the Smart Cache
+
+The smart cache system provides efficient memory-managed caching of decompressed point data:
+
+```csharp
+using Copc.Cache;
+
+// Open file with automatic caching (512 MB RAM buffer)
+using var cachedReader = CachedCopcReader.Open("example.copc.laz", cacheSizeMB: 512);
+
+// Query points - first time loads from disk, subsequent queries use cache
+var points = cachedReader.GetPointsInBox(boundingBox);
+
+// Check cache performance
+var stats = cachedReader.Cache.GetStatistics();
+Console.WriteLine($"Hit rate: {stats.HitRate:F1}%");
+```
+
+The cache uses LRU (Least Recently Used) eviction and automatically manages memory. Perfect for:
+- Interactive panning/zooming
+- Real-time camera movement
+- Progressive LOD loading
+- Repeated spatial queries
+
+See the [Cache README](COPC.Net/Cache/README.md) for detailed documentation and the `Examples` project for more examples.
