@@ -9,6 +9,11 @@ namespace Copc.LazPerf
     /// </summary>
     public class Point14Decompressor
     {
+        private static void DebugLog(string message)
+        {
+            if (Copc.Utils.DebugConfig.LazPerfDebug)
+                Console.WriteLine(message);
+        }
         // The main input stream (for reading first point and stream sizes)
         private readonly IInStream _rawStream;
         private readonly int _pointFormat; // 6, 7, or 8
@@ -343,20 +348,23 @@ namespace Copc.LazPerf
             // First point is read from raw stream
             if (_lastChannel == -1)
             {
-                Console.WriteLine($"[DEBUG] Reading first uncompressed point (30 bytes)");
+                DebugLog($"[DEBUG] Reading first uncompressed point (30 bytes)");
                 // Read first uncompressed point (base 30 bytes)
                 byte[] firstPointData = new byte[30]; 
                 _rawStream.GetBytes(firstPointData, 30);
-                Console.WriteLine($"[DEBUG] First uncompressed point read successfully");
+                DebugLog($"[DEBUG] First uncompressed point read successfully");
                 
                 // Debug: print raw bytes
-                Console.Write($"[DEBUG] First point raw bytes: ");
-                for (int i = 0; i < 12; i++)
-                    Console.Write($"{firstPointData[i]:X2} ");
-                Console.WriteLine();
+                if (Copc.Utils.DebugConfig.LazPerfDebug)
+                {
+                    Console.Write($"[DEBUG] First point raw bytes: ");
+                    for (int i = 0; i < 12; i++)
+                        Console.Write($"{firstPointData[i]:X2} ");
+                    Console.WriteLine();
+                }
                 
                 var firstPoint = LasPoint14.Unpack(firstPointData, 0);
-                Console.WriteLine($"[DEBUG] First point unpacked: X={firstPoint.X}, Y={firstPoint.Y}, Z={firstPoint.Z}, Channel={firstPoint.ScannerChannel}");
+                DebugLog($"[DEBUG] First point unpacked: X={firstPoint.X}, Y={firstPoint.Y}, Z={firstPoint.Z}, Channel={firstPoint.ScannerChannel}");
                 
                 // For format 7 & 8, also read the first RGB value (6 bytes: R, G, B as uint16)
                 // This happens BEFORE reading sizes, as per LAZ format spec
@@ -365,7 +373,7 @@ namespace Copc.LazPerf
                 {
                     firstRGB = new byte[6];
                     _rawStream.GetBytes(firstRGB, 6);
-                    Console.WriteLine($"[DEBUG] Read first RGB bytes: {BitConverter.ToString(firstRGB)}");
+                    DebugLog($"[DEBUG] Read first RGB bytes: {BitConverter.ToString(firstRGB)}");
                     
                     // Unpack RGB
                     _lastR[0] = BitConverter.ToUInt16(firstRGB, 0);
@@ -379,7 +387,7 @@ namespace Copc.LazPerf
                 {
                     firstNIR = new byte[2];
                     _rawStream.GetBytes(firstNIR, 2);
-                    Console.WriteLine($"[DEBUG] Read first NIR bytes");
+                    DebugLog($"[DEBUG] Read first NIR bytes");
                 }
                 
                 // For extra bytes, the first 'extra' block is stored raw as well
@@ -387,7 +395,7 @@ namespace Copc.LazPerf
                 {
                     var firstExtra = new byte[_extraByteCount];
                     _rawStream.GetBytes(firstExtra, _extraByteCount);
-                    Console.WriteLine($"[DEBUG] Read first ExtraBytes ({_extraByteCount} bytes)");
+                    DebugLog($"[DEBUG] Read first ExtraBytes ({_extraByteCount} bytes)");
                 }
                 
                 // Determine channel from first point

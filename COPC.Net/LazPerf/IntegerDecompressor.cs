@@ -94,7 +94,7 @@ namespace Copc.LazPerf
             int real = pred + corrector;
             
             // Debug for X coordinate (bits=32, contexts=2)
-            if (_bits == 32 && _contexts == 2 && (real < -1000000 || real > 1000000))
+            if (Copc.Utils.DebugConfig.LazPerfDebug && _bits == 32 && _contexts == 2 && (real < -1000000 || real > 1000000))
             {
                 Console.WriteLine($"[DEBUG IntDecomp] pred={pred}, corrector={corrector}, real={real}, K={K}, _corrRange={_corrRange}");
             }
