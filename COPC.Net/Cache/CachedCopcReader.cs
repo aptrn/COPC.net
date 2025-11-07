@@ -309,22 +309,23 @@ namespace Copc.Cache
         /// <summary>
         /// Gets all currently cached data in Stride engine format.
         /// Returns points with Position and Color as Vector4 (W=1 for both),
-        /// and all other attributes as separate float32 values.
+        /// and all other attributes (including extra dimensions) as separate float32 values.
         /// </summary>
-        /// <returns>All cached points in Stride format</returns>
+        /// <returns>All cached points in Stride format with extra dimensions extracted</returns>
         public StrideCacheData GetCacheData()
         {
-            return cache.GetCacheData();
+            return cache.GetCacheData(reader.Config.ExtraDimensions);
         }
 
         /// <summary>
         /// Gets all currently cached data in Stride format with separate arrays for each attribute.
         /// Useful for direct GPU buffer upload as vertex attributes.
+        /// Extra dimensions are included in ExtraDimensionArrays dictionary.
         /// </summary>
-        /// <returns>All cached points with separate arrays (Positions, Colors, Intensities, etc.)</returns>
+        /// <returns>All cached points with separate arrays (Positions, Colors, Intensities, ExtraDimensionArrays, etc.)</returns>
         public StrideCacheData GetCacheDataSeparated()
         {
-            return cache.GetCacheDataSeparated();
+            return cache.GetCacheDataSeparated(reader.Config.ExtraDimensions);
         }
 
         /// <summary>
@@ -336,7 +337,7 @@ namespace Copc.Cache
         public StridePoint[] GetStridePointsFromNodes(IEnumerable<Node> nodes)
         {
             var copcPoints = GetPointsFromNodes(nodes);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
         }
 
         /// <summary>
@@ -345,7 +346,7 @@ namespace Copc.Cache
         public StridePoint[] GetStridePointsInBox(Box box, double resolution = 0)
         {
             var copcPoints = GetPointsInBox(box, resolution);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
         }
 
         /// <summary>
@@ -354,7 +355,7 @@ namespace Copc.Cache
         public StridePoint[] GetStridePointsInFrustum(Frustum frustum, double resolution = 0)
         {
             var copcPoints = GetPointsInFrustum(frustum, resolution);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
         }
 
         /// <summary>
@@ -363,7 +364,7 @@ namespace Copc.Cache
         public StridePoint[] GetStridePointsInFrustum(double[] viewProjectionMatrix, double resolution = 0)
         {
             var copcPoints = GetPointsInFrustum(viewProjectionMatrix, resolution);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
         }
 
         /// <summary>
@@ -372,7 +373,7 @@ namespace Copc.Cache
         public StridePoint[] GetStridePointsInRadius(Sphere sphere, double resolution = 0)
         {
             var copcPoints = GetPointsInRadius(sphere, resolution);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
         }
 
         /// <summary>
@@ -381,7 +382,7 @@ namespace Copc.Cache
         public StridePoint[] GetStridePointsInRadius(double centerX, double centerY, double centerZ, double radius, double resolution = 0)
         {
             var copcPoints = GetPointsInRadius(centerX, centerY, centerZ, radius, resolution);
-            return StrideCacheExtensions.ConvertToStridePoints(copcPoints);
+            return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
         }
 
         public void Dispose()
