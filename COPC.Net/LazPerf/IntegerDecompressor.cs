@@ -90,7 +90,14 @@ namespace Copc.LazPerf
 
         public int Decompress(ArithmeticDecoder decoder, int pred, uint context)
         {
-            int real = pred + ReadCorrector(decoder, _mBits[(int)context]);
+            int corrector = ReadCorrector(decoder, _mBits[(int)context]);
+            int real = pred + corrector;
+            
+            // Debug for X coordinate (bits=32, contexts=2)
+            if (_bits == 32 && _contexts == 2 && (real < -1000000 || real > 1000000))
+            {
+                Console.WriteLine($"[DEBUG IntDecomp] pred={pred}, corrector={corrector}, real={real}, K={K}, _corrRange={_corrRange}");
+            }
             
             if (real < 0)
                 real += (int)_corrRange;

@@ -26,6 +26,7 @@ namespace Copc.LazPerf
     {
         byte GetByte();
         void GetBytes(byte[] buffer, int length);
+        uint ReadInt();  // Read a 32-bit unsigned integer (little-endian)
     }
 
     /// <summary>
@@ -61,6 +62,20 @@ namespace Copc.LazPerf
         {
             buffer = new byte[count];
             GetBytes(buffer, count);
+        }
+        
+        public uint ReadInt()
+        {
+            if (_index + 4 > _data.Length)
+                throw new InvalidOperationException("Not enough data in stream to read int");
+            
+            // Read 4 bytes in little-endian order
+            uint value = (uint)(_data[_index] | 
+                               (_data[_index + 1] << 8) | 
+                               (_data[_index + 2] << 16) | 
+                               (_data[_index + 3] << 24));
+            _index += 4;
+            return value;
         }
     }
 

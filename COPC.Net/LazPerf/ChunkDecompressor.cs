@@ -37,13 +37,6 @@ namespace Copc.LazPerf
 
             // Create input stream from chunk data
             var inStream = new MemoryInStream(chunkData);
-            
-            // Create decoder
-            _decoder = new ArithmeticDecoder(inStream);
-            
-            // Initialize the decoder with the chunk data
-            // Skip first 4 bytes which contain the initial value for the arithmetic decoder
-            _decoder.ReadInitBytes();
 
             // Create appropriate decompressor based on point format
             switch (pointFormat)
@@ -52,6 +45,9 @@ namespace Copc.LazPerf
                     _basePointSize = 20;
                     if (pointSize != _basePointSize)
                         throw new ArgumentException($"Point format 0 should have size {_basePointSize}, got {pointSize}");
+                    // Format 0 uses a single arithmetic decoder
+                    _decoder = new ArithmeticDecoder(inStream);
+                    _decoder.ReadInitBytes();
                     _point10Decompressor = new Point10Decompressor(_decoder);
                     break;
                     
@@ -64,21 +60,27 @@ namespace Copc.LazPerf
                     _basePointSize = 30;
                     if (pointSize < _basePointSize)
                         throw new ArgumentException($"Point format 6 should have size >= {_basePointSize}, got {pointSize}");
-                    _point14Decompressor = new Point14Decompressor(_decoder);
+                    // Format 6/7/8 use multiple arithmetic decoders internally
+                    int extraBytes6 = pointSize - _basePointSize;
+                    _point14Decompressor = new Point14Decompressor(inStream, pointFormat, extraBytes6);
                     break;
                     
                 case 7:
                     _basePointSize = 36;
                     if (pointSize < _basePointSize)
                         throw new ArgumentException($"Point format 7 should have size >= {_basePointSize}, got {pointSize}");
-                    _point14Decompressor = new Point14Decompressor(_decoder);
+                    // Format 6/7/8 use multiple arithmetic decoders internally
+                    int extraBytes7 = pointSize - _basePointSize;
+                    _point14Decompressor = new Point14Decompressor(inStream, pointFormat, extraBytes7);
                     break;
                     
                 case 8:
                     _basePointSize = 38;
                     if (pointSize < _basePointSize)
                         throw new ArgumentException($"Point format 8 should have size >= {_basePointSize}, got {pointSize}");
-                    _point14Decompressor = new Point14Decompressor(_decoder);
+                    // Format 6/7/8 use multiple arithmetic decoders internally
+                    int extraBytes8 = pointSize - _basePointSize;
+                    _point14Decompressor = new Point14Decompressor(inStream, pointFormat, extraBytes8);
                     break;
                     
                 default:
@@ -96,9 +98,6 @@ namespace Copc.LazPerf
         {
             if (!_isOpen)
                 throw new InvalidOperationException("ChunkDecompressor is not open. Call Open() first.");
-
-            if (_decoder == null)
-                throw new InvalidOperationException("Decoder not initialized");
 
             byte[] baseData;
             
@@ -122,7 +121,8 @@ namespace Copc.LazPerf
                     throw new NotImplementedException($"Point format {_pointFormat} decompression not implemented");
             }
             
-            // If point has extra bytes beyond the base format, pad with zeros
+            // If point has extra bytes beyond what the decompressor returned, pad with zeros
+            // Note: Point14Decompressor now returns base point + RGB (for format 7/8), but not extra bytes yet
             // TODO: Properly decompress extra bytes using byte14 field compressor
             if (_pointSize > baseData.Length)
             {
