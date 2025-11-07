@@ -63,8 +63,7 @@ namespace Copc.Examples
         {
             var extraInfo = FormatExtraDimensions(point, extraDimensions);
             
-            Console.WriteLine($"[{index,3}] X={point.X,12:F3} Y={point.Y,12:F3} Z={point.Z,12:F3} " +
-                            $"Intensity={point.Intensity,5} Class={point.Classification,3}{extraInfo}");
+            Console.WriteLine($"[{index,3}] X={point.X,12:F3} Y={point.Y,12:F3} Z={point.Z,12:F3}{extraInfo}");
         }
 
         /// <summary>
@@ -75,7 +74,6 @@ namespace Copc.Examples
             var extraInfo = FormatExtraDimensions(point, extraDimensions);
             
             Console.WriteLine($"[{index,3}] X={point.X,12:F3} Y={point.Y,12:F3} Z={point.Z,12:F3} " +
-                            $"Intensity={point.Intensity,5} Class={point.Classification,3} " +
                             $"RGB=({point.Red},{point.Green},{point.Blue}){extraInfo}");
         }
 
@@ -87,7 +85,7 @@ namespace Copc.Examples
             var extraInfo = FormatExtraDimensions(point, extraDimensions);
             
             Console.WriteLine($"[{index,3}] X={point.X,12:F3} Y={point.Y,12:F3} Z={point.Z,12:F3} " +
-                            $"Distance={distance,8:F3}m Intensity={point.Intensity,5} Class={point.Classification,3}{extraInfo}");
+                            $"Distance={distance,8:F3}m{extraInfo}");
         }
     }
 }

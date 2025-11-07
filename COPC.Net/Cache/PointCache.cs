@@ -52,6 +52,10 @@ namespace Copc.Cache
         private long totalMisses;
         private long totalEvictions;
 
+		// Cached Stride-format aggregation of all cached points
+		private StrideCacheData? cachedStrideData;
+		private bool strideCacheDirty;
+
         /// <summary>
         /// Gets the current memory usage in bytes.
         /// </summary>
@@ -120,6 +124,9 @@ namespace Copc.Cache
             totalHits = 0;
             totalMisses = 0;
             totalEvictions = 0;
+
+			cachedStrideData = null;
+			strideCacheDirty = true;
         }
 
         /// <summary>
@@ -192,6 +199,9 @@ namespace Copc.Cache
             var newNode = lruList.AddFirst(cachedData);
             cache[key] = newNode;
             currentMemoryBytes += memorySize;
+
+			// Mark stride cache dirty since content changed
+			strideCacheDirty = true;
         }
 
         /// <summary>
@@ -284,6 +294,8 @@ namespace Copc.Cache
                 currentMemoryBytes -= node.Value.MemorySize;
                 lruList.Remove(node);
                 cache.Remove(key);
+				// Content changed
+				strideCacheDirty = true;
                 return true;
             }
             return false;
@@ -297,6 +309,8 @@ namespace Copc.Cache
             cache.Clear();
             lruList.Clear();
             currentMemoryBytes = 0;
+			cachedStrideData = null;
+			strideCacheDirty = true;
         }
 
         /// <summary>
@@ -353,7 +367,40 @@ namespace Copc.Cache
             lruList.RemoveLast();
             currentMemoryBytes -= lruData.MemorySize;
             totalEvictions++;
+			// Content changed
+			strideCacheDirty = true;
         }
+
+		/// <summary>
+		/// Builds or returns cached Stride-format separated arrays for all cached points.
+		/// Rebuilds only when cache content changes (on Put/Remove/Clear/Evict).
+		/// </summary>
+		public StrideCacheData GetOrBuildStrideCacheDataSeparated(List<ExtraDimension>? extraDimensions = null)
+		{
+			if (cachedStrideData != null && !strideCacheDirty)
+			{
+				return cachedStrideData;
+			}
+
+			// Convert all cached points to Stride and generate separated arrays
+			var cachedNodes = GetCachedNodes();
+			var allStridePoints = new List<StridePoint>();
+			foreach (var nodeInfo in cachedNodes)
+			{
+				if (TryGetPoints(nodeInfo.Key, out var copcPoints) && copcPoints != null)
+				{
+					var stridePoints = StrideCacheExtensions.ConvertToStridePoints(copcPoints, extraDimensions);
+					allStridePoints.AddRange(stridePoints);
+				}
+			}
+
+			var data = new StrideCacheData { Points = allStridePoints.ToArray() };
+			data.GenerateSeparateArrays();
+
+			cachedStrideData = data;
+			strideCacheDirty = false;
+			return data;
+		}
 
         /// <summary>
         /// Estimates the memory size of a point array.

@@ -303,22 +303,36 @@ namespace Copc.LazPerf
 					extraSizes[i] = _rawStream.ReadInt();
 			}
 
-				// Initialize decoders by consuming stream data in the same order
+				// Helper to consume and discard a stream
+            static void SkipStream(IInStream stream, uint size)
+            {
+                if (size == 0) return;
+                // Read and discard bytes to advance the pointer
+                byte[] tmp = new byte[size];
+                stream.GetBytes(tmp, (int)size);
+            }
+
+            // Initialize decoders by consuming stream data in the same order
             _xyDecoder = CreateDecoderForStream(_rawStream, (int)xySizeBytes);
             _zDecoder = CreateDecoderForStream(_rawStream, (int)zSizeBytes);
-            _classDecoder = CreateDecoderForStream(_rawStream, (int)classSizeBytes);
-            _flagsDecoder = CreateDecoderForStream(_rawStream, (int)flagsSizeBytes);
-            _intensityDecoder = CreateDecoderForStream(_rawStream, (int)intensitySizeBytes);
-            _scanAngleDecoder = CreateDecoderForStream(_rawStream, (int)scanAngleSizeBytes);
-            _userDataDecoder = CreateDecoderForStream(_rawStream, (int)userDataSizeBytes);
-            _pointSourceIdDecoder = CreateDecoderForStream(_rawStream, (int)pointSourceIdSizeBytes);
-            _gpsTimeDecoder = CreateDecoderForStream(_rawStream, (int)gpsTimeSizeBytes);
+
+            // Skip non-required attribute streams (we won't decode per-point)
+            SkipStream(_rawStream, classSizeBytes); _classDecoder = null;
+            SkipStream(_rawStream, flagsSizeBytes); _flagsDecoder = null;
+            SkipStream(_rawStream, intensitySizeBytes); _intensityDecoder = null;
+            SkipStream(_rawStream, scanAngleSizeBytes); _scanAngleDecoder = null;
+            SkipStream(_rawStream, userDataSizeBytes); _userDataDecoder = null;
+            SkipStream(_rawStream, pointSourceIdSizeBytes); _pointSourceIdDecoder = null;
+            SkipStream(_rawStream, gpsTimeSizeBytes); _gpsTimeDecoder = null;
 
             if (_pointFormat == 7 || _pointFormat == 8)
                 _rgbDecoder = CreateDecoderForStream(_rawStream, (int)rgbSizeBytes);
 
+            // NIR not needed for our pipeline; skip it
             if (_pointFormat == 8)
-                _nirDecoder = CreateDecoderForStream(_rawStream, (int)nirSizeBytes);
+            {
+                SkipStream(_rawStream, nirSizeBytes); _nirDecoder = null;
+            }
 
 				// Initialize extra byte decoders (one per extra byte stream)
 			if (extraSizes != null && _extraBytesDecoders != null)

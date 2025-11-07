@@ -5,6 +5,8 @@ using Copc.Hierarchy;
 using Copc.IO;
 using StrideVector3 = Stride.Core.Mathematics.Vector3;
 using StrideVector4 = Stride.Core.Mathematics.Vector4;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Copc.Cache
 {
@@ -89,23 +91,92 @@ namespace Copc.Cache
         /// <param name="nodes">Nodes whose data should be cached</param>
         public void Update(IEnumerable<Node> nodes)
         {
+            Update(nodes, 1);
+        }
+
+        /// <summary>
+        /// Updates the cache with provided nodes. Decompression is currently single-threaded
+        /// due to thread-safety concerns in the decompressor.
+        /// </summary>
+        /// <param name="nodes">Nodes to warm into cache</param>
+        /// <param name="degreeOfParallelism">Ignored for now; decompression runs single-threaded</param>
+        public void Update(IEnumerable<Node> nodes, int degreeOfParallelism)
+        {
             if (nodes == null)
                 throw new ArgumentNullException(nameof(nodes));
 
+            // Determine which nodes actually need loading
+            var nodesToLoad = new List<Node>();
             foreach (var node in nodes)
             {
-                // Skip if already cached
-                if (cache.Contains(node.Key))
-                    continue;
+                if (!cache.Contains(node.Key))
+                {
+                    nodesToLoad.Add(node);
+                }
+            }
 
+            if (nodesToLoad.Count == 0)
+                return;
+
+            // Step 1: Read compressed chunks sequentially (stream is not thread-safe)
+            var compressed = new List<(Node node, byte[] data)>(nodesToLoad.Count);
+            foreach (var node in nodesToLoad)
+            {
                 try
                 {
-                    var points = reader.GetPointsFromNode(node);
-                    cache.Put(node.Key, points);
+                    if (node.PointCount == 0 || node.ByteSize == 0)
+                        continue;
+
+                    var data = reader.GetPointDataCompressed(node);
+                    if (data != null && data.Length > 0)
+                    {
+                        compressed.Add((node, data));
+                    }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Warning: Failed to update cache for node {node.Key}: {ex.Message}");
+                    Console.WriteLine($"Warning: Failed to read compressed data for node {node.Key}: {ex.Message}");
+                }
+            }
+
+            if (compressed.Count == 0)
+                return;
+
+            // Step 2: Decompress sequentially (thread-safety)
+            var header = reader.Config.LasHeader;
+            var extra = reader.Config.ExtraDimensions;
+            var results = new CopcPoint[compressed.Count][];
+
+            for (int i = 0; i < compressed.Count; i++)
+            {
+                try
+                {
+                    var item = compressed[i];
+                    var points = LazDecompressor.DecompressChunk(
+                        header.BasePointFormat,
+                        header.PointDataRecordLength,
+                        item.data,
+                        item.node.PointCount,
+                        header,
+                        extra
+                    );
+                    results[i] = points;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Failed to decompress node {compressed[i].node.Key}: {ex.Message}");
+                    results[i] = Array.Empty<CopcPoint>();
+                }
+            }
+
+            // Step 3: Put into cache sequentially to keep cache structure consistent
+            for (int i = 0; i < compressed.Count; i++)
+            {
+                var node = compressed[i].node;
+                var points = results[i] ?? Array.Empty<CopcPoint>();
+                if (points.Length > 0)
+                {
+                    cache.Put(node.Key, points);
                 }
             }
         }
@@ -354,7 +425,31 @@ namespace Copc.Cache
         /// <returns>All cached points with separate arrays (Positions, Colors, Intensities, ExtraDimensionArrays, etc.)</returns>
         public StrideCacheData GetCacheDataSeparated()
         {
-            return cache.GetCacheDataSeparated(reader.Config.ExtraDimensions);
+            return cache.GetOrBuildStrideCacheDataSeparated(reader.Config.ExtraDimensions);
+        }
+
+        /// <summary>
+        /// Gets separated Stride-format data only for the specified nodes, using points from cache.
+        /// Does not trigger loading; nodes must be pre-warmed via Update().
+        /// </summary>
+        /// <param name="nodes">Nodes whose cached points should be converted</param>
+        public StrideCacheData GetCacheDataSeparatedFromNodes(IEnumerable<Node> nodes)
+        {
+            if (nodes == null) throw new ArgumentNullException(nameof(nodes));
+
+            var allCopcPoints = new List<CopcPoint>();
+            foreach (var node in nodes)
+            {
+                if (cache.TryGetPoints(node.Key, out var pts) && pts != null && pts.Length > 0)
+                {
+                    allCopcPoints.AddRange(pts);
+                }
+            }
+
+            var stridePoints = StrideCacheExtensions.ConvertToStridePoints(allCopcPoints.ToArray(), reader.Config.ExtraDimensions);
+            var data = new StrideCacheData { Points = stridePoints };
+            data.GenerateSeparateArrays();
+            return data;
         }
 
         /// <summary>

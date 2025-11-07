@@ -41,6 +41,17 @@ namespace Copc.Examples
             {
                 switch (command)
                 {
+                    case "cache-update-bench":
+                        // cache-update-bench <file> [cacheMB]
+                        if (args.Length < 2)
+                        {
+                            Console.WriteLine("Usage: Examples cache-update-bench <copc-file> [cacheMB]");
+                            return;
+                        }
+                        int cacheMb = args.Length >= 3 ? int.Parse(args[2]) : 512;
+                        CacheUpdateBenchmark.Run(args[1], cacheMb);
+                        break;
+
                     case "random":
                         // random <file> <lod>
                         if (args.Length < 3)
@@ -334,6 +345,7 @@ namespace Copc.Examples
             Console.WriteLine("  Examples cache <copc-file>");
             Console.WriteLine("  Examples cache-heavy <copc-file> [passes]");
             Console.WriteLine("  Examples stride <copc-file>");
+            Console.WriteLine("  Examples cache-update-bench <copc-file> [cacheMB]");
             Console.WriteLine("\nExamples:");
             Console.WriteLine("  Examples random data.copc.laz 5");
             Console.WriteLine("  Examples bbox-lod data.copc.laz 5 -10 -10 0 10 10 50");
@@ -370,6 +382,7 @@ namespace Copc.Examples
             Console.WriteLine("  cache           - Demonstrate smart caching system for efficient data access");
             Console.WriteLine("  cache-heavy     - Stress test cache with 8GB and repeated loads");
             Console.WriteLine("  stride          - Export cached data in Stride engine format (Vector4 positions/colors)");
+            Console.WriteLine("  cache-update-bench - Benchmark cache Update() + separated data retrieval across phases");
         }
 
         static void RandomBoundingBoxExample(string copcFilePath, int targetLod)

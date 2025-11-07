@@ -380,7 +380,7 @@ namespace Copc.Examples
                         double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
                         
                         Console.WriteLine($"[{i,3}] X={p.X,12:F3} Y={p.Y,12:F3} Z={p.Z,12:F3} " +
-                                        $"Distance={distance,8:F3}m Intensity={p.Intensity,5} Class={p.Classification,3}");
+                                        $"Distance={distance,8:F3}m");
                     }
                     Console.WriteLine("\n✅ Complete!");
                 }

@@ -71,7 +71,6 @@ namespace Copc.Examples
                 var p = strideData.Points[i];
                 Console.WriteLine($"  [{i}] Pos({p.Position.X:F2}, {p.Position.Y:F2}, {p.Position.Z:F2}, {p.Position.W})");
                 Console.WriteLine($"       Color({p.Color.X:F3}, {p.Color.Y:F3}, {p.Color.Z:F3}, {p.Color.W})");
-                Console.WriteLine($"       Intensity={p.Intensity:F3}, Class={p.Classification}, Return={p.ReturnNumber}/{p.NumberOfReturns}");
                 
                 // Show extra dimensions if present
                 if (p.ExtraDimensions != null && p.ExtraDimensions.Count > 0)
@@ -104,14 +103,6 @@ namespace Copc.Examples
             Console.WriteLine($"Generated separate arrays for all attributes:");
             Console.WriteLine($"  Positions:        {separatedData.Positions!.Length:N0} Vector4s");
             Console.WriteLine($"  Colors:           {separatedData.Colors!.Length:N0} Vector4s");
-            Console.WriteLine($"  Intensities:      {separatedData.Intensities!.Length:N0} floats");
-            Console.WriteLine($"  Classifications:  {separatedData.Classifications!.Length:N0} floats");
-            Console.WriteLine($"  ReturnNumbers:    {separatedData.ReturnNumbers!.Length:N0} floats");
-            Console.WriteLine($"  NumberOfReturns:  {separatedData.NumberOfReturns!.Length:N0} floats");
-            Console.WriteLine($"  ScanAngles:       {separatedData.ScanAngles!.Length:N0} floats");
-            Console.WriteLine($"  UserData:         {separatedData.UserData!.Length:N0} floats");
-            Console.WriteLine($"  PointSourceIds:   {separatedData.PointSourceIds!.Length:N0} floats");
-            Console.WriteLine($"  GpsTimes:         {separatedData.GpsTimes!.Length:N0} floats");
             
             // Show extra dimension arrays if present
             if (separatedData.ExtraDimensionArrays != null && separatedData.ExtraDimensionArrays.Count > 0)
@@ -135,17 +126,12 @@ namespace Copc.Examples
             Console.WriteLine($"\nReady for GPU vertex attribute buffers:");
             Console.WriteLine($"  glBufferData(POSITION_BUFFER, positions, GL_STATIC_DRAW);");
             Console.WriteLine($"  glBufferData(COLOR_BUFFER, colors, GL_STATIC_DRAW);");
-            Console.WriteLine($"  glBufferData(INTENSITY_BUFFER, intensities, GL_STATIC_DRAW);");
-            Console.WriteLine($"  // ... and so on for each attribute");
 
             // Show memory layout
             Console.WriteLine($"\nMemory layout per point:");
-            Console.WriteLine($"  Position:       4 × float (16 bytes) - Vector4");
-            Console.WriteLine($"  Color:          4 × float (16 bytes) - Vector4");
-            Console.WriteLine($"  Intensity:      1 × float (4 bytes)");
-            Console.WriteLine($"  Classification: 1 × float (4 bytes)");
-            Console.WriteLine($"  + 8 more floats (32 bytes)");
-            Console.WriteLine($"  Total:          ~72 bytes per point");
+            Console.WriteLine($"  Position: 4 × float (16 bytes) - Vector4");
+            Console.WriteLine($"  Color:    4 × float (16 bytes) - Vector4");
+            Console.WriteLine($"  Total:    ~32 bytes per point (+ extras if present)");
 
             // ========================================
             // Example 3: Direct query to Stride format
@@ -155,18 +141,6 @@ namespace Copc.Examples
             // Query and convert in one step (uses cache)
             var stridePoints = cachedReader.GetStridePointsInBox(box, resolution: 0);
             Console.WriteLine($"Direct query: {stridePoints.Length:N0} points in Stride format");
-            Console.WriteLine($"\nSample of different classification values:");
-            
-            var classifications = stridePoints
-                .GroupBy(p => p.Classification)
-                .Select(g => new { Class = g.Key, Count = g.Count() })
-                .OrderByDescending(x => x.Count)
-                .Take(5);
-
-            foreach (var c in classifications)
-            {
-                Console.WriteLine($"  Classification {c.Class}: {c.Count:N0} points");
-            }
 
             // ========================================
             // Example 4: Frustum query with Stride output

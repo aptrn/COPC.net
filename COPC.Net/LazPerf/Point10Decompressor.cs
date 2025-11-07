@@ -148,46 +148,8 @@ namespace Copc.LazPerf
                 m = NumberReturnMap[n, r];
                 l = NumberReturnLevel[n, r];
 
-                // Decompress intensity if changed
-                if ((changedValues & (1 << 4)) != 0)
-                {
-                    _last.Intensity = (ushort)_icIntensity.Decompress(_decoder, 
-                        _lastIntensity[m], m < 3 ? m : 3);
-                    _lastIntensity[m] = _last.Intensity;
-                }
-                else
-                {
-                    _last.Intensity = _lastIntensity[m];
-                }
-
-                // Decompress classification if changed
-                if ((changedValues & (1 << 3)) != 0)
-                {
-                    _last.Classification = (byte)_decoder.DecodeSymbol(
-                        _mClassification[_last.Classification]);
-                }
-
-                // Decompress scan angle rank if changed
-                if ((changedValues & (1 << 2)) != 0)
-                {
-                    int val = (int)_decoder.DecodeSymbol(
-                        _mScanAngleRank[_last.ScanDirectionFlag]);
-                    _last.ScanAngleRank = (sbyte)(val + _last.ScanAngleRank);
-                }
-
-                // Decompress user data if changed
-                if ((changedValues & (1 << 1)) != 0)
-                {
-                    _last.UserData = (byte)_decoder.DecodeSymbol(
-                        _mUserData[_last.UserData]);
-                }
-
-                // Decompress point source ID if changed
-                if ((changedValues & 1) != 0)
-                {
-                    _last.PointSourceId = (ushort)_icPointSourceId.Decompress(_decoder,
-                        _last.PointSourceId, 0);
-                }
+                // Skip decoding of non-required attributes: intensity, classification, scan angle, user data, point source ID
+                // We keep bitfields (return info) updated above for correct XY/Z contexts.
             }
             else
             {

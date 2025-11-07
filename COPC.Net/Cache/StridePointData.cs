@@ -8,7 +8,7 @@ namespace Copc.Cache
 {
     /// <summary>
     /// Represents a point cloud point in Stride engine format.
-    /// Position and Color as Vector4, all other attributes as separate float32 values.
+    /// Only Position and Color are stored explicitly; Extra dimensions are optional.
     /// </summary>
     public struct StridePoint
     {
@@ -22,46 +22,6 @@ namespace Copc.Cache
         /// If point has no RGB data, defaults to white (1, 1, 1, 1)
         /// </summary>
         public Vector4 Color;
-
-        /// <summary>
-        /// Intensity value (normalized 0-1 from 0-65535)
-        /// </summary>
-        public float Intensity;
-
-        /// <summary>
-        /// Classification value (0-255)
-        /// </summary>
-        public float Classification;
-
-        /// <summary>
-        /// Return number (1-15)
-        /// </summary>
-        public float ReturnNumber;
-
-        /// <summary>
-        /// Number of returns (1-15)
-        /// </summary>
-        public float NumberOfReturns;
-
-        /// <summary>
-        /// Scan angle (degrees)
-        /// </summary>
-        public float ScanAngle;
-
-        /// <summary>
-        /// User data (0-255)
-        /// </summary>
-        public float UserData;
-
-        /// <summary>
-        /// Point source ID (0-65535)
-        /// </summary>
-        public float PointSourceId;
-
-        /// <summary>
-        /// GPS time (if available, otherwise 0)
-        /// </summary>
-        public float GpsTime;
 
         /// <summary>
         /// Extra dimension values (from Extra Bytes VLR), stored as Dictionary[dimension_name, float32[]]
@@ -91,15 +51,7 @@ namespace Copc.Cache
                     (point.Green ?? 65535) / 65535.0f,
                     (point.Blue ?? 65535) / 65535.0f,
                     1.0f  // Alpha component set to 1
-                ),
-                Intensity = point.Intensity / 65535.0f,
-                Classification = point.Classification,
-                ReturnNumber = point.ReturnNumber,
-                NumberOfReturns = point.NumberOfReturns,
-                ScanAngle = (float)point.ScanAngle,
-                UserData = point.UserData,
-                PointSourceId = point.PointSourceId,
-                GpsTime = (float)(point.GpsTime ?? 0.0)
+                )
             };
 
             // Extract extra dimensions if present
@@ -134,8 +86,7 @@ namespace Copc.Cache
         public override string ToString()
         {
             return $"Pos({Position.X:F2}, {Position.Y:F2}, {Position.Z:F2}) " +
-                   $"Color({Color.X:F3}, {Color.Y:F3}, {Color.Z:F3}) " +
-                   $"Intensity={Intensity:F3} Class={Classification}";
+                   $"Color({Color.X:F3}, {Color.Y:F3}, {Color.Z:F3})";
         }
     }
 
@@ -158,7 +109,7 @@ namespace Copc.Cache
         /// <summary>
         /// Total memory size estimate in bytes.
         /// </summary>
-        public long MemorySize => Count * (sizeof(float) * 18 + 32); // 18 floats (2 Vector4 + 10 floats) + overhead
+        public long MemorySize => Count * (sizeof(float) * 8 + 32); // 8 floats (2 Vector4) + overhead
 
         /// <summary>
         /// Separate arrays for direct GPU upload as vertex attributes.
@@ -166,14 +117,6 @@ namespace Copc.Cache
         /// </summary>
         public Vector4[]? Positions { get; set; }
         public Vector4[]? Colors { get; set; }
-        public float[]? Intensities { get; set; }
-        public float[]? Classifications { get; set; }
-        public float[]? ReturnNumbers { get; set; }
-        public float[]? NumberOfReturns { get; set; }
-        public float[]? ScanAngles { get; set; }
-        public float[]? UserData { get; set; }
-        public float[]? PointSourceIds { get; set; }
-        public float[]? GpsTimes { get; set; }
 
         /// <summary>
         /// Extra dimension arrays [dimension_name -> float32[num_points * num_components]]
@@ -194,28 +137,12 @@ namespace Copc.Cache
             int count = Points.Length;
             Positions = new Vector4[count];
             Colors = new Vector4[count];
-            Intensities = new float[count];
-            Classifications = new float[count];
-            ReturnNumbers = new float[count];
-            NumberOfReturns = new float[count];
-            ScanAngles = new float[count];
-            UserData = new float[count];
-            PointSourceIds = new float[count];
-            GpsTimes = new float[count];
 
             for (int i = 0; i < count; i++)
             {
                 var p = Points[i];
                 Positions[i] = p.Position;
                 Colors[i] = p.Color;
-                Intensities[i] = p.Intensity;
-                Classifications[i] = p.Classification;
-                ReturnNumbers[i] = p.ReturnNumber;
-                NumberOfReturns[i] = p.NumberOfReturns;
-                ScanAngles[i] = p.ScanAngle;
-                UserData[i] = p.UserData;
-                PointSourceIds[i] = p.PointSourceId;
-                GpsTimes[i] = p.GpsTime;
             }
 
             // Generate extra dimension arrays
