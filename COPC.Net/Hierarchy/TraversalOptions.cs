@@ -48,12 +48,12 @@ namespace Copc.Hierarchy
         public Func<NodeTraversalContext, bool> SpatialPredicate { get; set; } = _ => true;
 
         /// <summary>
-        /// Resolution selector: given the current entry context (node or page),
-        /// return the desired maximum spacing (resolution) for accepting nodes.
-        /// If the returned value is &lt;= 0, resolution filtering is disabled for this entry.
-        /// A node is accepted when nodeResolution &lt;= desiredResolution.
+        /// Resolution predicate: given the current entry context (node or page),
+        /// return true if the node should be accepted based on its resolution.
+        /// Return true to accept the node, false to reject it.
+        /// Note: This is only called for actual nodes, not for pages during traversal.
         /// </summary>
-        public Func<NodeTraversalContext, double> DesiredResolution { get; set; } = _ => 0.0;
+        public Func<NodeTraversalContext, bool> ResolutionPredicate { get; set; } = _ => true;
 
         /// <summary>
         /// If true, traversal continues descending even after accepting a node at a given depth.

@@ -18,7 +18,7 @@ namespace Copc.Hierarchy
             return new TraversalOptions
             {
                 SpatialPredicate = ctx => frustum.IntersectsBox(ctx.Bounds),
-                DesiredResolution = _ => resolution,
+                ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
                 ContinueAfterAccept = continueAfterAccept
             };
         }
@@ -32,7 +32,7 @@ namespace Copc.Hierarchy
             return new TraversalOptions
             {
                 SpatialPredicate = ctx => ctx.Bounds.Intersects(box),
-                DesiredResolution = _ => resolution,
+                ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
                 ContinueAfterAccept = continueAfterAccept
             };
         }
@@ -46,7 +46,7 @@ namespace Copc.Hierarchy
             return new TraversalOptions
             {
                 SpatialPredicate = ctx => sphere.IntersectsBox(ctx.Bounds),
-                DesiredResolution = _ => resolution,
+                ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
                 ContinueAfterAccept = continueAfterAccept
             };
         }
@@ -58,6 +58,39 @@ namespace Copc.Hierarchy
         {
             var sphere = new Sphere(center, maxDistance);
             return Sphere(sphere, resolution, continueAfterAccept);
+        }
+
+        /// <summary>
+        /// Frustum-based traversal with adaptive resolution based on distance from a point (typically a camera).
+        /// Resolution increases (coarser) with distance from the viewpoint.
+        /// </summary>
+        /// <param name="frustum">The frustum to use for spatial culling.</param>
+        /// <param name="viewpoint">The point from which distance is measured (typically camera position).</param>
+        /// <param name="resolutionSlope">How much resolution increases per unit of distance (e.g., 0.01 means 1cm per meter).</param>
+        /// <param name="minResolution">Minimum resolution clamp for nearby nodes.</param>
+        /// <param name="continueAfterAccept">Whether to continue traversing after accepting a node.</param>
+        public static TraversalOptions FrustumWithDistanceResolution(
+            Frustum frustum, 
+            Vector3 viewpoint, 
+            double resolutionSlope, 
+            double minResolution, 
+            bool continueAfterAccept = true)
+        {
+            return new TraversalOptions
+            {
+                SpatialPredicate = ctx => frustum.IntersectsBox(ctx.Bounds),
+                ResolutionPredicate = ctx =>
+                {
+                    var c = ctx.Bounds.Center;
+                    double dx = c.X - viewpoint.X;
+                    double dy = c.Y - viewpoint.Y;
+                    double dz = c.Z - viewpoint.Z;
+                    double dist = System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                    double desiredResolution = System.Math.Max(minResolution, resolutionSlope * dist);
+                    return ctx.NodeResolution <= desiredResolution;
+                },
+                ContinueAfterAccept = continueAfterAccept
+            };
         }
     }
 }

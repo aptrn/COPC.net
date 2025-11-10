@@ -80,28 +80,16 @@ namespace Copc.Examples
             var frustumNodes = reader.TraverseNodes(frustumOptions);
             PrintNodeSummary(reader, frustumNodes);
 
-            // 5) Custom: Frustum spatial cull + resolution by distance from camera (frustum origin)
-            Console.WriteLine("--- Custom: Frustum + Camera Distance Adaptive Resolution ---");
+            // 5) Preset: Frustum with distance-based adaptive resolution
+            Console.WriteLine("--- Preset: Frustum + Camera Distance Adaptive Resolution ---");
             // Pick a camera position in front of the frustum box along -Z
             var camera = new Vector3(center.X, center.Y, frustumBox.MinZ - (frustumBox.MaxZ - frustumBox.MinZ) * 0.2);
             double camSlope = info.Spacing * 0.01;      // spacing grows with distance
             double camMinRes = info.Spacing / 8.0;       // clamp minimum resolution near camera
 
-            var frustumCameraAdaptive = new TraversalOptions
-            {
-                SpatialPredicate = ctx => testFrustum.IntersectsBox(ctx.Bounds),
-                DesiredResolution = ctx =>
-                {
-                    var c = ctx.Bounds.Center;
-                    double dx = c.X - camera.X;
-                    double dy = c.Y - camera.Y;
-                    double dz = c.Z - camera.Z;
-                    double dist = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                    return Math.Max(camMinRes, camSlope * dist);
-                },
-                ContinueAfterAccept = true
-            };
-            var frustumCameraNodes = reader.TraverseNodes(frustumCameraAdaptive);
+            var frustumCameraOptions = TraversalPresets.FrustumWithDistanceResolution(
+                testFrustum, camera, camSlope, camMinRes, continueAfterAccept: true);
+            var frustumCameraNodes = reader.TraverseNodes(frustumCameraOptions);
             PrintNodeSummary(reader, frustumCameraNodes);
 
             // Custom delegate behaviors
@@ -111,7 +99,7 @@ namespace Copc.Examples
             var slabOptions = new TraversalOptions
             {
                 SpatialPredicate = ctx => ctx.Bounds.Intersects(upperSlab),
-                DesiredResolution = _ => 0.0, // disable resolution filtering
+                ResolutionPredicate = _ => true, // accept all nodes (no resolution filtering)
                 ContinueAfterAccept = true
             };
             var slabNodes = reader.TraverseNodes(slabOptions);
@@ -126,14 +114,15 @@ namespace Copc.Examples
             var adaptiveOptions = new TraversalOptions
             {
                 SpatialPredicate = _ => true, // no spatial pruning
-                DesiredResolution = ctx =>
+                ResolutionPredicate = ctx =>
                 {
                     var c = ctx.Bounds.Center;
                     double dx = c.X - focus.X;
                     double dy = c.Y - focus.Y;
                     double dz = c.Z - focus.Z;
                     double dist = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                    return Math.Max(minResolution, slope * dist);
+                    double desiredResolution = Math.Max(minResolution, slope * dist);
+                    return ctx.NodeResolution <= desiredResolution;
                 },
                 ContinueAfterAccept = true
             };

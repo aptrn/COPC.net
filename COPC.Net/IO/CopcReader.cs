@@ -460,14 +460,12 @@ namespace Copc.IO
                 if (!options.SpatialPredicate(ctx))
                     continue;
 
-                // Resolution decision
-                double desiredResolution = options.DesiredResolution(ctx);
-                double nodeResolution = ctx.NodeResolution;
-                bool resolutionOk = desiredResolution <= 0 || nodeResolution <= desiredResolution;
-
                 if (isNode)
                 {
-                    if (resolutionOk)
+                    // Resolution decision
+                    bool accepted = options.ResolutionPredicate(ctx);
+                    
+                    if (accepted)
                     {
                         results.Add((Node)entry);
 
