@@ -1,4 +1,6 @@
 using System;
+using StridePlane = Stride.Core.Mathematics.Plane;
+using StrideVector3 = Stride.Core.Mathematics.Vector3;
 
 namespace Copc.Geometry
 {
@@ -125,6 +127,24 @@ namespace Copc.Geometry
         public override string ToString()
         {
             return $"Plane({A:F3}x + {B:F3}y + {C:F3}z + {D:F3} = 0)";
+        }
+
+        // Stride interop
+
+        /// <summary>
+        /// Converts this plane to a Stride Plane.
+        /// </summary>
+        public StridePlane ToStride()
+        {
+            return new StridePlane(new StrideVector3((float)A, (float)B, (float)C), (float)D);
+        }
+
+        /// <summary>
+        /// Creates a Plane from a Stride Plane.
+        /// </summary>
+        public static Plane FromStride(StridePlane p)
+        {
+            return new Plane(p.Normal.X, p.Normal.Y, p.Normal.Z, p.D);
         }
     }
 }

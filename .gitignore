@@ -3,3 +3,5 @@ cache/*
 *.copc.laz
 *.laz
 *.ply
+.vs/
+.vscode/

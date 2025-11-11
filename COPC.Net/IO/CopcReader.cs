@@ -4,9 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Copc.Cache;
-using Copc.Geometry;
 using Copc.Hierarchy;
 using Copc.Utils;
+using Stride.Core.Mathematics;
 
 namespace Copc.IO
 {
@@ -511,13 +511,13 @@ namespace Copc.IO
         /// </summary>
         /// <param name="layer">The depth/layer level (0 = root, 1 = first level children, etc.)</param>
         /// <returns>A dictionary mapping VoxelKey to Box (bounding box) for each node at the specified layer</returns>
-        public Dictionary<VoxelKey, Box> GetBoundingBoxesAtLayer(int layer)
+        public Dictionary<VoxelKey, Stride.Core.Mathematics.BoundingBox> GetBoundingBoxesAtLayer(int layer)
         {
             if (layer < 0)
                 throw new ArgumentOutOfRangeException(nameof(layer), "Layer must be non-negative");
 
             var allNodes = GetAllNodes();
-            var result = new Dictionary<VoxelKey, Box>();
+            var result = new Dictionary<VoxelKey, Stride.Core.Mathematics.BoundingBox>();
 
             foreach (var node in allNodes)
             {
@@ -624,7 +624,7 @@ namespace Copc.IO
         /// <summary>
         /// Gets nodes within a bounding box with optional resolution limit.
         /// </summary>
-        public List<Node> GetNodesWithinBox(Box box, double resolution = 0)
+        public List<Node> GetNodesWithinBox(Stride.Core.Mathematics.BoundingBox box, double resolution = 0)
         {
             var allNodes = GetAllNodes();
             var result = new List<Node>();
@@ -632,8 +632,16 @@ namespace Copc.IO
             foreach (var node in allNodes)
             {
                 var nodeBounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
-                
-                if (nodeBounds.Within(box))
+
+                // nodeBounds within box => component-wise containment
+                bool within = nodeBounds.Minimum.X >= box.Minimum.X &&
+                              nodeBounds.Minimum.Y >= box.Minimum.Y &&
+                              nodeBounds.Minimum.Z >= box.Minimum.Z &&
+                              nodeBounds.Maximum.X <= box.Maximum.X &&
+                              nodeBounds.Maximum.Y <= box.Maximum.Y &&
+                              nodeBounds.Maximum.Z <= box.Maximum.Z;
+
+                if (within)
                 {
                     // Check resolution if specified
                     if (resolution > 0)
@@ -653,7 +661,7 @@ namespace Copc.IO
         /// <summary>
         /// Gets nodes that intersect with a bounding box.
         /// </summary>
-        public List<Node> GetNodesIntersectBox(Box box, double resolution = 0)
+        public List<Node> GetNodesIntersectBox(Stride.Core.Mathematics.BoundingBox box, double resolution = 0)
         {
             var allNodes = GetAllNodes();
             var result = new List<Node>();
@@ -661,8 +669,8 @@ namespace Copc.IO
             foreach (var node in allNodes)
             {
                 var nodeBounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
-                
-                if (nodeBounds.Intersects(box))
+
+                if (nodeBounds.Intersects(ref box))
                 {
                     // Check resolution if specified
                     if (resolution > 0)
@@ -686,7 +694,7 @@ namespace Copc.IO
         /// <param name="frustum">The view frustum to test against</param>
         /// <param name="resolution">Optional minimum resolution (point spacing). If > 0, only nodes with resolution less than or equal to this value are returned.</param>
         /// <returns>List of nodes that intersect the frustum</returns>
-        public List<Node> GetNodesIntersectFrustum(Frustum frustum, double resolution = 0)
+        public List<Node> GetNodesIntersectFrustum(Stride.Core.Mathematics.BoundingFrustum frustum, double resolution = 0)
         {
             var allNodes = GetAllNodes();
             var result = new List<Node>();
@@ -695,7 +703,8 @@ namespace Copc.IO
             {
                 var nodeBounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
                 
-                if (frustum.IntersectsBox(nodeBounds))
+                var bext = new Stride.Core.Mathematics.BoundingBoxExt(nodeBounds.Minimum, nodeBounds.Maximum);
+                if (frustum.Contains(ref bext))
                 {
                     // Check resolution if specified
                     if (resolution > 0)
@@ -721,7 +730,7 @@ namespace Copc.IO
         /// <returns>List of nodes that intersect the frustum</returns>
         public List<Node> GetNodesIntersectFrustum(double[] viewProjectionMatrix, double resolution = 0)
         {
-            var frustum = Frustum.FromViewProjectionMatrix(viewProjectionMatrix);
+            var frustum = Copc.Geometry.Frustum.CreateStrideBoundingFrustum(viewProjectionMatrix);
             return GetNodesIntersectFrustum(frustum, resolution);
         }
 
@@ -734,7 +743,7 @@ namespace Copc.IO
         /// <returns>List of nodes that intersect the frustum</returns>
         public List<Node> GetNodesIntersectFrustum(float[] viewProjectionMatrix, double resolution = 0)
         {
-            var frustum = Frustum.FromViewProjectionMatrix(viewProjectionMatrix);
+            var frustum = Copc.Geometry.Frustum.CreateStrideBoundingFrustum(viewProjectionMatrix);
             return GetNodesIntersectFrustum(frustum, resolution);
         }
 
@@ -746,7 +755,7 @@ namespace Copc.IO
         /// <param name="sphere">The sphere to test against</param>
         /// <param name="resolution">Optional minimum resolution (point spacing). If > 0, only nodes with resolution less than or equal to this value are returned.</param>
         /// <returns>List of nodes that intersect the sphere</returns>
-        public List<Node> GetNodesWithinRadius(Sphere sphere, double resolution = 0)
+        public List<Node> GetNodesWithinRadius(Stride.Core.Mathematics.BoundingSphere sphere, double resolution = 0)
         {
             var allNodes = GetAllNodes();
             var result = new List<Node>();
@@ -755,7 +764,7 @@ namespace Copc.IO
             {
                 var nodeBounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
                 
-                if (sphere.IntersectsBox(nodeBounds))
+                if (sphere.Intersects(ref nodeBounds))
                 {
                     // Check resolution if specified
                     if (resolution > 0)
@@ -784,7 +793,10 @@ namespace Copc.IO
         /// <returns>List of nodes that intersect the sphere</returns>
         public List<Node> GetNodesWithinRadius(double centerX, double centerY, double centerZ, double radius, double resolution = 0)
         {
-            var sphere = new Sphere(centerX, centerY, centerZ, radius);
+            var sphere = new Stride.Core.Mathematics.BoundingSphere(
+                new Stride.Core.Mathematics.Vector3((float)centerX, (float)centerY, (float)centerZ),
+                (float)radius
+            );
             return GetNodesWithinRadius(sphere, resolution);
         }
 
@@ -796,9 +808,9 @@ namespace Copc.IO
         /// <param name="radius">Radius of the sphere</param>
         /// <param name="resolution">Optional minimum resolution (point spacing). If > 0, only nodes with resolution less than or equal to this value are returned.</param>
         /// <returns>List of nodes that intersect the sphere</returns>
-        public List<Node> GetNodesWithinRadius(Vector3 center, double radius, double resolution = 0)
+        public List<Node> GetNodesWithinRadius(Stride.Core.Mathematics.Vector3 center, double radius, double resolution = 0)
         {
-            var sphere = new Sphere(center, radius);
+            var sphere = new Stride.Core.Mathematics.BoundingSphere(center, (float)radius);
             return GetNodesWithinRadius(sphere, resolution);
         }
 

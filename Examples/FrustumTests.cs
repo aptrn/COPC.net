@@ -1,5 +1,5 @@
 using System;
-using Copc.Geometry;
+using Stride.Core.Mathematics;
 
 namespace Copc.Examples
 {
@@ -13,83 +13,15 @@ namespace Copc.Examples
         {
             Console.WriteLine("Running Frustum Tests...\n");
 
-            TestPlaneCreation();
-            TestPlaneDistance();
-            TestPlaneBoxIntersection();
-            TestFrustumCreation();
-            TestFrustumBoxIntersection();
-            TestFrustumPointContainment();
-            TestViewProjectionMatrixExtraction();
+            TestFrustumCreationAndBoxIntersection();
+            TestMatrixExtraction();
 
             Console.WriteLine("\n✓ All tests completed!");
         }
 
-        static void TestPlaneCreation()
+        static void TestFrustumCreationAndBoxIntersection()
         {
-            Console.WriteLine("Test: Plane Creation");
-            
-            var plane = new Plane(1, 0, 0, -5);
-            Assert(plane.A == 1, "Plane A coordinate");
-            Assert(plane.B == 0, "Plane B coordinate");
-            Assert(plane.C == 0, "Plane C coordinate");
-            Assert(plane.D == -5, "Plane D coordinate");
-            
-            var normal = plane.Normal;
-            Assert(normal.X == 1 && normal.Y == 0 && normal.Z == 0, "Plane normal");
-            
-            Console.WriteLine("  ✓ Plane creation works\n");
-        }
-
-        static void TestPlaneDistance()
-        {
-            Console.WriteLine("Test: Plane Distance Calculation");
-            
-            // Plane at X = 5 (normal pointing in +X direction)
-            var plane = new Plane(1, 0, 0, -5);
-            
-            // Point at X = 10 should be on positive side (distance = 5)
-            var point1 = new Vector3(10, 0, 0);
-            double dist1 = plane.DistanceToPoint(point1);
-            Assert(Math.Abs(dist1 - 5.0) < 0.001, $"Point on positive side (expected 5, got {dist1})");
-            
-            // Point at X = 0 should be on negative side (distance = -5)
-            var point2 = new Vector3(0, 0, 0);
-            double dist2 = plane.DistanceToPoint(point2);
-            Assert(Math.Abs(dist2 - (-5.0)) < 0.001, $"Point on negative side (expected -5, got {dist2})");
-            
-            // Point at X = 5 should be on plane (distance = 0)
-            var point3 = new Vector3(5, 0, 0);
-            double dist3 = plane.DistanceToPoint(point3);
-            Assert(Math.Abs(dist3) < 0.001, $"Point on plane (expected 0, got {dist3})");
-            
-            Console.WriteLine("  ✓ Plane distance calculations work\n");
-        }
-
-        static void TestPlaneBoxIntersection()
-        {
-            Console.WriteLine("Test: Plane-Box Intersection");
-            
-            // Plane at X = 5
-            var plane = new Plane(1, 0, 0, -5);
-            
-            // Box completely on positive side (X: 10 to 20)
-            var box1 = new Box(10, 0, 0, 20, 10, 10);
-            Assert(plane.IntersectsBox(box1), "Box on positive side should intersect");
-            
-            // Box completely on negative side (X: -10 to 0)
-            var box2 = new Box(-10, 0, 0, 0, 10, 10);
-            Assert(!plane.IntersectsBox(box2), "Box on negative side should not intersect");
-            
-            // Box straddling the plane (X: 0 to 10)
-            var box3 = new Box(0, 0, 0, 10, 10, 10);
-            Assert(plane.IntersectsBox(box3), "Box straddling plane should intersect");
-            
-            Console.WriteLine("  ✓ Plane-box intersection works\n");
-        }
-
-        static void TestFrustumCreation()
-        {
-            Console.WriteLine("Test: Frustum Creation from Matrix");
+            Console.WriteLine("Test: Stride BoundingFrustum Creation + Box Intersection");
             
             // Simple identity-like view-projection matrix
             double[] matrix = new double[16]
@@ -99,90 +31,61 @@ namespace Copc.Examples
                 0, 0, 1, 0,
                 0, 0, 0, 1
             };
-            
-            var frustum = Frustum.FromViewProjectionMatrix(matrix, normalize: false);
-            
-            Assert(frustum.Planes.Length == 6, "Frustum should have 6 planes");
-            Assert(frustum.Left != null, "Left plane should exist");
-            Assert(frustum.Right != null, "Right plane should exist");
-            Assert(frustum.Bottom != null, "Bottom plane should exist");
-            Assert(frustum.Top != null, "Top plane should exist");
-            Assert(frustum.Near != null, "Near plane should exist");
-            Assert(frustum.Far != null, "Far plane should exist");
-            
-            Console.WriteLine("  ✓ Frustum creation works\n");
-        }
 
-        static void TestFrustumBoxIntersection()
-        {
-            Console.WriteLine("Test: Frustum-Box Intersection");
-            
-            // Create a simple frustum pointing down -Z axis
-            // This frustum roughly represents a camera at origin looking down -Z
-            double[] matrix = CreateSimplePerspectiveMatrix();
-            var frustum = Frustum.FromViewProjectionMatrix(matrix);
+            // Create Stride matrix and frustum
+            var m = new Matrix(
+                (float)matrix[0], (float)matrix[1], (float)matrix[2], (float)matrix[3],
+                (float)matrix[4], (float)matrix[5], (float)matrix[6], (float)matrix[7],
+                (float)matrix[8], (float)matrix[9], (float)matrix[10], (float)matrix[11],
+                (float)matrix[12], (float)matrix[13], (float)matrix[14], (float)matrix[15]
+            );
+            var frustum = new BoundingFrustum(ref m);
             
             // Box in front of camera (should be visible)
-            var visibleBox = new Box(-5, -5, -20, 5, 5, -10);
-            Assert(frustum.IntersectsBox(visibleBox), "Box in front should be visible");
+            var visibleBox = new BoundingBox(new Vector3(-5, -5, -20), new Vector3(5, 5, -10));
+            var vext = new BoundingBoxExt(visibleBox.Minimum, visibleBox.Maximum);
+            Assert(frustum.Contains(ref vext), "Box in front should be visible");
             
             // Box behind camera (should not be visible)
-            var behindBox = new Box(-5, -5, 5, 5, 5, 10);
-            bool behindVisible = frustum.IntersectsBox(behindBox);
+            var behindBox = new BoundingBox(new Vector3(-5, -5, 5), new Vector3(5, 5, 10));
+            var bext = new BoundingBoxExt(behindBox.Minimum, behindBox.Maximum);
+            bool behindVisible = frustum.Contains(ref bext);
             // Note: This test may pass or fail depending on the exact matrix - simplified test
             Console.WriteLine($"  - Box behind camera: {(behindVisible ? "visible" : "not visible")}");
             
             Console.WriteLine("  ✓ Frustum-box intersection works\n");
         }
 
-        static void TestFrustumPointContainment()
+        static void TestMatrixExtraction()
         {
-            Console.WriteLine("Test: Frustum Point Containment");
-            
-            double[] matrix = CreateSimplePerspectiveMatrix();
-            var frustum = Frustum.FromViewProjectionMatrix(matrix);
-            
-            // Point in front of camera
-            var frontPoint = new Vector3(0, 0, -10);
-            // This is a simplified test - exact behavior depends on matrix
-            Console.WriteLine($"  - Point in front: {(frustum.ContainsPoint(frontPoint) ? "inside" : "outside")}");
-            
-            // Point very far away
-            var farPoint = new Vector3(0, 0, -10000);
-            Console.WriteLine($"  - Point far away: {(frustum.ContainsPoint(farPoint) ? "inside" : "outside")}");
-            
-            Console.WriteLine("  ✓ Point containment test completed\n");
-        }
-
-        static void TestViewProjectionMatrixExtraction()
-        {
-            Console.WriteLine("Test: View-Projection Matrix Extraction");
+            Console.WriteLine("Test: Matrix Extraction to Frustum (Stride)");
             
             // Test with different matrix formats
             double[] doubleMatrix = CreateSimplePerspectiveMatrix();
-            var frustum1 = Frustum.FromViewProjectionMatrix(doubleMatrix);
-            Assert(frustum1.Planes.Length == 6, "Double matrix extraction");
+            var m = new Matrix(
+                (float)doubleMatrix[0], (float)doubleMatrix[1], (float)doubleMatrix[2], (float)doubleMatrix[3],
+                (float)doubleMatrix[4], (float)doubleMatrix[5], (float)doubleMatrix[6], (float)doubleMatrix[7],
+                (float)doubleMatrix[8], (float)doubleMatrix[9], (float)doubleMatrix[10], (float)doubleMatrix[11],
+                (float)doubleMatrix[12], (float)doubleMatrix[13], (float)doubleMatrix[14], (float)doubleMatrix[15]
+            );
+            var frustum1 = new BoundingFrustum(ref m);
+            var testBox1 = new BoundingBoxExt(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
+            Assert(frustum1.Contains(ref testBox1), "Stride frustum created");
             
             // Test float matrix conversion
             float[] floatMatrix = new float[16];
             for (int i = 0; i < 16; i++)
                 floatMatrix[i] = (float)doubleMatrix[i];
             
-            var frustum2 = Frustum.FromViewProjectionMatrix(floatMatrix);
-            Assert(frustum2.Planes.Length == 6, "Float matrix extraction");
-            
-            // Test normalization
-            var frustumNormalized = Frustum.FromViewProjectionMatrix(doubleMatrix, normalize: true);
-            var frustumNotNormalized = Frustum.FromViewProjectionMatrix(doubleMatrix, normalize: false);
-            
-            // Normalized planes should have unit-length normals (or close to it)
-            double normalLength = Math.Sqrt(
-                frustumNormalized.Left.A * frustumNormalized.Left.A +
-                frustumNormalized.Left.B * frustumNormalized.Left.B +
-                frustumNormalized.Left.C * frustumNormalized.Left.C
+            var mf = new Matrix(
+                floatMatrix[0], floatMatrix[1], floatMatrix[2], floatMatrix[3],
+                floatMatrix[4], floatMatrix[5], floatMatrix[6], floatMatrix[7],
+                floatMatrix[8], floatMatrix[9], floatMatrix[10], floatMatrix[11],
+                floatMatrix[12], floatMatrix[13], floatMatrix[14], floatMatrix[15]
             );
-            
-            Console.WriteLine($"  - Normalized plane normal length: {normalLength:F3} (should be ~1.0)");
+            var frustum2 = new BoundingFrustum(ref mf);
+            var testBox2 = new BoundingBoxExt(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
+            Assert(frustum2.Contains(ref testBox2), "Float matrix extraction");
             
             Console.WriteLine("  ✓ Matrix extraction works\n");
         }

@@ -1,4 +1,6 @@
 using System;
+using StrideMatrix = Stride.Core.Mathematics.Matrix;
+using StrideBoundingFrustum = Stride.Core.Mathematics.BoundingFrustum;
 
 namespace Copc.Geometry
 {
@@ -173,6 +175,43 @@ namespace Copc.Geometry
         public override string ToString()
         {
             return $"Frustum[Left={Left}, Right={Right}, Bottom={Bottom}, Top={Top}, Near={Near}, Far={Far}]";
+        }
+
+        // Stride interop helpers
+
+        /// <summary>
+        /// Creates a Stride BoundingFrustum from a row-major 4x4 view-projection matrix.
+        /// </summary>
+        public static StrideBoundingFrustum CreateStrideBoundingFrustum(double[] viewProjectionMatrix)
+        {
+            if (viewProjectionMatrix.Length != 16)
+                throw new ArgumentException("View-projection matrix must have 16 elements (4x4 matrix)", nameof(viewProjectionMatrix));
+
+            // Stride matrices are row-major with M11..M44 fields laid out in the same order
+            var m = new StrideMatrix(
+                (float)viewProjectionMatrix[0],  (float)viewProjectionMatrix[1],  (float)viewProjectionMatrix[2],  (float)viewProjectionMatrix[3],
+                (float)viewProjectionMatrix[4],  (float)viewProjectionMatrix[5],  (float)viewProjectionMatrix[6],  (float)viewProjectionMatrix[7],
+                (float)viewProjectionMatrix[8],  (float)viewProjectionMatrix[9],  (float)viewProjectionMatrix[10], (float)viewProjectionMatrix[11],
+                (float)viewProjectionMatrix[12], (float)viewProjectionMatrix[13], (float)viewProjectionMatrix[14], (float)viewProjectionMatrix[15]
+            );
+            return new StrideBoundingFrustum(m);
+        }
+
+        /// <summary>
+        /// Creates a Stride BoundingFrustum from a row-major 4x4 view-projection matrix (float version).
+        /// </summary>
+        public static StrideBoundingFrustum CreateStrideBoundingFrustum(float[] viewProjectionMatrix)
+        {
+            if (viewProjectionMatrix.Length != 16)
+                throw new ArgumentException("View-projection matrix must have 16 elements (4x4 matrix)", nameof(viewProjectionMatrix));
+
+            var m = new StrideMatrix(
+                viewProjectionMatrix[0],  viewProjectionMatrix[1],  viewProjectionMatrix[2],  viewProjectionMatrix[3],
+                viewProjectionMatrix[4],  viewProjectionMatrix[5],  viewProjectionMatrix[6],  viewProjectionMatrix[7],
+                viewProjectionMatrix[8],  viewProjectionMatrix[9],  viewProjectionMatrix[10], viewProjectionMatrix[11],
+                viewProjectionMatrix[12], viewProjectionMatrix[13], viewProjectionMatrix[14], viewProjectionMatrix[15]
+            );
+            return new StrideBoundingFrustum(m);
         }
     }
 }

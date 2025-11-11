@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using Copc.Geometry;
+using Stride.Core.Mathematics;
 
 namespace Copc.Hierarchy
 {
@@ -148,21 +148,22 @@ namespace Copc.Hierarchy
         /// <summary>
         /// Calculates the bounding box for this voxel given header information.
         /// </summary>
-        public Box GetBounds(LasHeader header, CopcInfo copcInfo)
+        public BoundingBox GetBounds(LasHeader header, CopcInfo copcInfo)
         {
             double span = GetSpanAtDepth(D, header);
             
             // Calculate the voxel bounds based on the COPC cube
-            var cube = Box.FromCenterAndHalfSize(
-                new Vector3(copcInfo.CenterX, copcInfo.CenterY, copcInfo.CenterZ),
-                copcInfo.HalfSize
-            );
+            var cubeCenter = new Vector3((float)copcInfo.CenterX, (float)copcInfo.CenterY, (float)copcInfo.CenterZ);
+            var halfSize = (float)copcInfo.HalfSize;
+            var cube = new BoundingBox(cubeCenter - new Vector3(halfSize), cubeCenter + new Vector3(halfSize));
 
-            double minX = cube.MinX + X * span;
-            double minY = cube.MinY + Y * span;
-            double minZ = cube.MinZ + Z * span;
+            double minX = cube.Minimum.X + X * span;
+            double minY = cube.Minimum.Y + Y * span;
+            double minZ = cube.Minimum.Z + Z * span;
 
-            return new Box(minX, minY, minZ, minX + span, minY + span, minZ + span);
+            var min = new Vector3((float)minX, (float)minY, (float)minZ);
+            var max = new Vector3((float)(minX + span), (float)(minY + span), (float)(minZ + span));
+            return new BoundingBox(min, max);
         }
 
         /// <summary>

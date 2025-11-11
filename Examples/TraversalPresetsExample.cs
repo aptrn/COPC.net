@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Copc;
-using Copc.Geometry;
+using Stride.Core.Mathematics;
 using Copc.Hierarchy;
 using Copc.IO;
 
@@ -32,25 +32,30 @@ namespace Copc.Examples
             Console.WriteLine($"  Z: [{header.MinZ:F3}, {header.MaxZ:F3}]\n");
 
             // Derive some convenient test shapes
-            var cloudBox = new Box(header.MinX, header.MinY, header.MinZ, header.MaxX, header.MaxY, header.MaxZ);
-            var center = cloudBox.Center;
+            var cloudBox = new BoundingBox(
+                new Vector3((float)header.MinX, (float)header.MinY, (float)header.MinZ),
+                new Vector3((float)header.MaxX, (float)header.MaxY, (float)header.MaxZ)
+            );
+            var center = (cloudBox.Minimum + cloudBox.Maximum) * 0.5f;
             double halfX = (header.MaxX - header.MinX) * 0.5;
             double halfY = (header.MaxY - header.MinY) * 0.5;
             double halfZ = (header.MaxZ - header.MinZ) * 0.5;
 
             // Box (20% of extent around center)
-            var testBox = new Box(
-                center.X - halfX * 0.2, center.Y - halfY * 0.2, center.Z - halfZ * 0.2,
-                center.X + halfX * 0.2, center.Y + halfY * 0.2, center.Z + halfZ * 0.2);
+            var testBox = new BoundingBox(
+                new Vector3((float)(center.X - halfX * 0.2), (float)(center.Y - halfY * 0.2), (float)(center.Z - halfZ * 0.2)),
+                new Vector3((float)(center.X + halfX * 0.2), (float)(center.Y + halfY * 0.2), (float)(center.Z + halfZ * 0.2))
+            );
 
             // Sphere radius at 25% of largest half extent
             double sphereRadius = Math.Max(halfX, Math.Max(halfY, halfZ)) * 0.25;
-            var testSphere = new Sphere(center, sphereRadius);
+            var testSphere = new BoundingSphere(center, (float)sphereRadius);
 
             // Simple orthographic frustum from a viewing box in front of center (slightly offset on -Z)
-            var frustumBox = new Box(
-                center.X - halfX * 0.3, center.Y - halfY * 0.3, center.Z - halfZ * 0.05,
-                center.X + halfX * 0.3, center.Y + halfY * 0.3, center.Z + halfZ * 0.6);
+            var frustumBox = new BoundingBox(
+                new Vector3((float)(center.X - halfX * 0.3), (float)(center.Y - halfY * 0.3), (float)(center.Z - halfZ * 0.05)),
+                new Vector3((float)(center.X + halfX * 0.3), (float)(center.Y + halfY * 0.3), (float)(center.Z + halfZ * 0.6))
+            );
             var testFrustum = FrustumFromBox(frustumBox);
 
             // Choose a sample resolution target (~ one LOD deeper than root)
@@ -83,7 +88,7 @@ namespace Copc.Examples
             // 5) Preset: Frustum with distance-based adaptive resolution
             Console.WriteLine("--- Preset: Frustum + Camera Distance Adaptive Resolution ---");
             // Pick a camera position in front of the frustum box along -Z
-            var camera = new Vector3(center.X, center.Y, frustumBox.MinZ - (frustumBox.MaxZ - frustumBox.MinZ) * 0.2);
+            var camera = new Vector3(center.X, center.Y, frustumBox.Minimum.Z - (frustumBox.Maximum.Z - frustumBox.Minimum.Z) * 0.2f);
             double camSlope = info.Spacing * 0.01;      // spacing grows with distance
             double camMinRes = info.Spacing / 8.0;       // clamp minimum resolution near camera
 
@@ -95,10 +100,13 @@ namespace Copc.Examples
             // Custom delegate behaviors
             // A) Vertical slab selector: accept nodes within upper half Z slab (no resolution filter)
             Console.WriteLine("--- Custom: Upper Z Slab (spatial only) ---");
-            var upperSlab = new Box(header.MinX, header.MinY, center.Z, header.MaxX, header.MaxY, header.MaxZ);
+            var upperSlab = new BoundingBox(
+                new Vector3((float)header.MinX, (float)header.MinY, center.Z),
+                new Vector3((float)header.MaxX, (float)header.MaxY, (float)header.MaxZ)
+            );
             var slabOptions = new TraversalOptions
             {
-                SpatialPredicate = ctx => ctx.Bounds.Intersects(upperSlab),
+                SpatialPredicate = ctx => ctx.Bounds.Intersects(ref upperSlab),
                 ResolutionPredicate = _ => true, // accept all nodes (no resolution filtering)
                 ContinueAfterAccept = true
             };
@@ -116,7 +124,7 @@ namespace Copc.Examples
                 SpatialPredicate = _ => true, // no spatial pruning
                 ResolutionPredicate = ctx =>
                 {
-                    var c = ctx.Bounds.Center;
+                    var c = (ctx.Bounds.Minimum + ctx.Bounds.Maximum) * 0.5f;
                     double dx = c.X - focus.X;
                     double dy = c.Y - focus.Y;
                     double dz = c.Z - focus.Z;
@@ -154,16 +162,24 @@ namespace Copc.Examples
             Console.WriteLine();
         }
 
-        private static Frustum FrustumFromBox(Box b)
+        private static BoundingFrustum FrustumFromBox(BoundingBox b)
         {
-            // Create 6 planes with inward-facing normals for an orthographic frustum
-            var left = Plane.FromNormalAndPoint(new Vector3(+1, 0, 0), new Vector3(b.MinX, 0, 0));
-            var right = Plane.FromNormalAndPoint(new Vector3(-1, 0, 0), new Vector3(b.MaxX, 0, 0));
-            var bottom = Plane.FromNormalAndPoint(new Vector3(0, +1, 0), new Vector3(0, b.MinY, 0));
-            var top = Plane.FromNormalAndPoint(new Vector3(0, -1, 0), new Vector3(0, b.MaxY, 0));
-            var near = Plane.FromNormalAndPoint(new Vector3(0, 0, +1), new Vector3(0, 0, b.MinZ));
-            var far = Plane.FromNormalAndPoint(new Vector3(0, 0, -1), new Vector3(0, 0, b.MaxZ));
-            return new Frustum(left, right, bottom, top, near, far);
+            // Build a simple orthographic frustum around the box, looking along -Z
+            var center = (b.Minimum + b.Maximum) * 0.5f;
+            var size = b.Maximum - b.Minimum;
+            float width = System.Math.Max(1e-6f, size.X);
+            float height = System.Math.Max(1e-6f, size.Y);
+            float depth = System.Math.Max(1e-6f, size.Z);
+
+            // Camera placed in front of the box along +Z, looking toward -Z
+            var eye = center + new Vector3(0, 0, depth);
+            var target = center;
+            var up = Vector3.UnitY;
+
+            var view = Matrix.LookAtRH(eye, target, up);
+            var proj = Matrix.OrthoRH(width, height, 0.001f, depth * 2f);
+            var vp = view * proj; // Stride expects Matrix in row-major with typical mul order
+            return new BoundingFrustum(ref vp);
         }
     }
 }

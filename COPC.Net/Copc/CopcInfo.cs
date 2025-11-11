@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using Copc.Geometry;
+using Stride.Core.Mathematics;
 
 namespace Copc
 {
@@ -75,14 +75,13 @@ namespace Copc
         }
 
         /// <summary>
-        /// Gets the COPC cube as a bounding box.
+        /// Gets the COPC cube as a Stride bounding box.
         /// </summary>
-        public Box GetCube()
+        public BoundingBox GetCube()
         {
-            return Box.FromCenterAndHalfSize(
-                new Vector3(CenterX, CenterY, CenterZ),
-                HalfSize
-            );
+            var center = new Vector3((float)CenterX, (float)CenterY, (float)CenterZ);
+            var half = new Vector3((float)HalfSize);
+            return new BoundingBox(center - half, center + half);
         }
 
         /// <summary>

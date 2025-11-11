@@ -1,4 +1,4 @@
-using Copc.Geometry;
+using Stride.Core.Mathematics;
 
 namespace Copc.Hierarchy
 {
@@ -13,11 +13,11 @@ namespace Copc.Hierarchy
         /// Frustum-based traversal. Keeps nodes whose bounds intersect the frustum.
         /// If resolution &gt; 0, only nodes with spacing &lt;= resolution are kept.
         /// </summary>
-        public static TraversalOptions Frustum(Frustum frustum, double resolution = 0.0, bool continueAfterAccept = true)
+        public static TraversalOptions Frustum(BoundingFrustum frustum, double resolution = 0.0, bool continueAfterAccept = true)
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx => frustum.IntersectsBox(ctx.Bounds),
+                SpatialPredicate = ctx => { var b = ctx.Bounds; var bext = new BoundingBoxExt(b.Minimum, b.Maximum); return frustum.Contains(ref bext); },
                 ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
                 ContinueAfterAccept = continueAfterAccept
             };
@@ -27,11 +27,11 @@ namespace Copc.Hierarchy
         /// Bounding-box traversal. Keeps nodes whose bounds intersect the given box.
         /// Matches previous GetNodesIntersectBox behavior.
         /// </summary>
-        public static TraversalOptions Box(Box box, double resolution = 0.0, bool continueAfterAccept = true)
+        public static TraversalOptions Box(BoundingBox box, double resolution = 0.0, bool continueAfterAccept = true)
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx => ctx.Bounds.Intersects(box),
+                SpatialPredicate = ctx => { var b = ctx.Bounds; return b.Intersects(ref box); },
                 ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
                 ContinueAfterAccept = continueAfterAccept
             };
@@ -41,11 +41,11 @@ namespace Copc.Hierarchy
         /// Sphere/radius traversal. Keeps nodes whose bounds intersect the sphere.
         /// Matches previous GetNodesWithinRadius behavior.
         /// </summary>
-        public static TraversalOptions Sphere(Sphere sphere, double resolution = 0.0, bool continueAfterAccept = true)
+        public static TraversalOptions Sphere(BoundingSphere sphere, double resolution = 0.0, bool continueAfterAccept = true)
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx => sphere.IntersectsBox(ctx.Bounds),
+                SpatialPredicate = ctx => { var b = ctx.Bounds; return sphere.Intersects(ref b); },
                 ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
                 ContinueAfterAccept = continueAfterAccept
             };
@@ -56,7 +56,7 @@ namespace Copc.Hierarchy
         /// </summary>
         public static TraversalOptions DistanceFromPoint(Vector3 center, double maxDistance, double resolution = 0.0, bool continueAfterAccept = true)
         {
-            var sphere = new Sphere(center, maxDistance);
+            var sphere = new BoundingSphere(center, (float)maxDistance);
             return Sphere(sphere, resolution, continueAfterAccept);
         }
 
@@ -70,7 +70,7 @@ namespace Copc.Hierarchy
         /// <param name="minResolution">Minimum resolution clamp for nearby nodes.</param>
         /// <param name="continueAfterAccept">Whether to continue traversing after accepting a node.</param>
         public static TraversalOptions FrustumWithDistanceResolution(
-            Frustum frustum, 
+            BoundingFrustum frustum, 
             Vector3 viewpoint, 
             double resolutionSlope, 
             double minResolution, 
@@ -78,13 +78,13 @@ namespace Copc.Hierarchy
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx => frustum.IntersectsBox(ctx.Bounds),
+                SpatialPredicate = ctx => { var b = ctx.Bounds; var bext = new BoundingBoxExt(b.Minimum, b.Maximum); return frustum.Contains(ref bext); },
                 ResolutionPredicate = ctx =>
                 {
-                    var c = ctx.Bounds.Center;
-                    double dx = c.X - viewpoint.X;
-                    double dy = c.Y - viewpoint.Y;
-                    double dz = c.Z - viewpoint.Z;
+                    var center = (ctx.Bounds.Minimum + ctx.Bounds.Maximum) * 0.5f;
+                    double dx = center.X - viewpoint.X;
+                    double dy = center.Y - viewpoint.Y;
+                    double dz = center.Z - viewpoint.Z;
                     double dist = System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
                     double desiredResolution = System.Math.Max(minResolution, resolutionSlope * dist);
                     return ctx.NodeResolution <= desiredResolution;

@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
-using Copc.Geometry;
 using Copc.Hierarchy;
 using Copc.IO;
 using StrideVector3 = Stride.Core.Mathematics.Vector3;
 using StrideVector4 = Stride.Core.Mathematics.Vector4;
+using StrideBoundingBox = Stride.Core.Mathematics.BoundingBox;
+using StrideBoundingFrustum = Stride.Core.Mathematics.BoundingFrustum;
+using StrideBoundingSphere = Stride.Core.Mathematics.BoundingSphere;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -230,7 +232,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets bounding boxes for all nodes at a specific layer.
         /// </summary>
-        public Dictionary<VoxelKey, Box> GetBoundingBoxesAtLayer(int layer)
+        public Dictionary<VoxelKey, StrideBoundingBox> GetBoundingBoxesAtLayer(int layer)
         {
             return reader.GetBoundingBoxesAtLayer(layer);
         }
@@ -238,7 +240,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes within a bounding box.
         /// </summary>
-        public List<Node> GetNodesWithinBox(Box box, double resolution = 0)
+        public List<Node> GetNodesWithinBox(StrideBoundingBox box, double resolution = 0)
         {
             return reader.GetNodesWithinBox(box, resolution);
         }
@@ -246,7 +248,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes that intersect with a bounding box.
         /// </summary>
-        public List<Node> GetNodesIntersectBox(Box box, double resolution = 0)
+        public List<Node> GetNodesIntersectBox(StrideBoundingBox box, double resolution = 0)
         {
             return reader.GetNodesIntersectBox(box, resolution);
         }
@@ -254,7 +256,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes that intersect with a view frustum.
         /// </summary>
-        public List<Node> GetNodesIntersectFrustum(Frustum frustum, double resolution = 0)
+        public List<Node> GetNodesIntersectFrustum(StrideBoundingFrustum frustum, double resolution = 0)
         {
             return reader.GetNodesIntersectFrustum(frustum, resolution);
         }
@@ -278,7 +280,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes within a spherical radius.
         /// </summary>
-        public List<Node> GetNodesWithinRadius(Sphere sphere, double resolution = 0)
+        public List<Node> GetNodesWithinRadius(StrideBoundingSphere sphere, double resolution = 0)
         {
             return reader.GetNodesWithinRadius(sphere, resolution);
         }
@@ -294,7 +296,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes within a spherical radius (from Vector3).
         /// </summary>
-        public List<Node> GetNodesWithinRadius(Vector3 center, double radius, double resolution = 0)
+        public List<Node> GetNodesWithinRadius(StrideVector3 center, double radius, double resolution = 0)
         {
             return reader.GetNodesWithinRadius(center, radius, resolution);
         }
@@ -323,7 +325,7 @@ namespace Copc.Cache
         /// <param name="box">The bounding box to query</param>
         /// <param name="resolution">Optional minimum resolution filter</param>
         /// <returns>Array of points within the box</returns>
-        public CopcPoint[] GetPointsInBox(Box box, double resolution = 0)
+        public CopcPoint[] GetPointsInBox(StrideBoundingBox box, double resolution = 0)
         {
             var nodes = reader.GetNodesIntersectBox(box, resolution);
             return GetPointsFromNodes(nodes);
@@ -335,7 +337,7 @@ namespace Copc.Cache
         /// <param name="frustum">The frustum to query</param>
         /// <param name="resolution">Optional minimum resolution filter</param>
         /// <returns>Array of points within the frustum</returns>
-        public CopcPoint[] GetPointsInFrustum(Frustum frustum, double resolution = 0)
+        public CopcPoint[] GetPointsInFrustum(StrideBoundingFrustum frustum, double resolution = 0)
         {
             var nodes = reader.GetNodesIntersectFrustum(frustum, resolution);
             return GetPointsFromNodes(nodes);
@@ -371,7 +373,7 @@ namespace Copc.Cache
         /// <param name="sphere">The sphere to query</param>
         /// <param name="resolution">Optional minimum resolution filter</param>
         /// <returns>Array of points within the sphere</returns>
-        public CopcPoint[] GetPointsInRadius(Sphere sphere, double resolution = 0)
+        public CopcPoint[] GetPointsInRadius(StrideBoundingSphere sphere, double resolution = 0)
         {
             var nodes = reader.GetNodesWithinRadius(sphere, resolution);
             return GetPointsFromNodes(nodes);
@@ -399,7 +401,7 @@ namespace Copc.Cache
         /// <param name="radius">Radius of the sphere</param>
         /// <param name="resolution">Optional minimum resolution filter</param>
         /// <returns>Array of points within the sphere</returns>
-        public CopcPoint[] GetPointsInRadius(Vector3 center, double radius, double resolution = 0)
+        public CopcPoint[] GetPointsInRadius(StrideVector3 center, double radius, double resolution = 0)
         {
             var nodes = reader.GetNodesWithinRadius(center, radius, resolution);
             return GetPointsFromNodes(nodes);
@@ -480,7 +482,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets points in a box and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInBox(Box box, double resolution = 0)
+        public StridePoint[] GetStridePointsInBox(StrideBoundingBox box, double resolution = 0)
         {
             var copcPoints = GetPointsInBox(box, resolution);
             return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
@@ -489,7 +491,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets points in a frustum and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInFrustum(Frustum frustum, double resolution = 0)
+        public StridePoint[] GetStridePointsInFrustum(StrideBoundingFrustum frustum, double resolution = 0)
         {
             var copcPoints = GetPointsInFrustum(frustum, resolution);
             return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
@@ -507,7 +509,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets points in a radius and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInRadius(Sphere sphere, double resolution = 0)
+        public StridePoint[] GetStridePointsInRadius(StrideBoundingSphere sphere, double resolution = 0)
         {
             var copcPoints = GetPointsInRadius(sphere, resolution);
             return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
