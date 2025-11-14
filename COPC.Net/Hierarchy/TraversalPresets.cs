@@ -17,7 +17,12 @@ namespace Copc.Hierarchy
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx => { var b = ctx.Bounds; var bext = new BoundingBoxExt(b.Minimum, b.Maximum); return frustum.Contains(ref bext); },
+                SpatialPredicate = ctx =>
+                {
+                    var sb = ctx.Bounds.ToStride();
+                    var bext = new BoundingBoxExt(sb.Minimum, sb.Maximum);
+                    return frustum.Contains(ref bext);
+                },
                 ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
                 ContinueAfterAccept = continueAfterAccept
             };
@@ -27,11 +32,11 @@ namespace Copc.Hierarchy
         /// Bounding-box traversal. Keeps nodes whose bounds intersect the given box.
         /// Matches previous GetNodesIntersectBox behavior.
         /// </summary>
-        public static TraversalOptions Box(BoundingBox box, double resolution = 0.0, bool continueAfterAccept = true)
+        public static TraversalOptions Box(Copc.Geometry.Box box, double resolution = 0.0, bool continueAfterAccept = true)
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx => { var b = ctx.Bounds; return b.Intersects(ref box); },
+                SpatialPredicate = ctx => ctx.Bounds.Intersects(box),
                 ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
                 ContinueAfterAccept = continueAfterAccept
             };
@@ -45,7 +50,11 @@ namespace Copc.Hierarchy
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx => { var b = ctx.Bounds; return sphere.Intersects(ref b); },
+                SpatialPredicate = ctx =>
+                {
+                    var sb = ctx.Bounds.ToStride();
+                    return sphere.Intersects(ref sb);
+                },
                 ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
                 ContinueAfterAccept = continueAfterAccept
             };
@@ -78,10 +87,16 @@ namespace Copc.Hierarchy
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx => { var b = ctx.Bounds; var bext = new BoundingBoxExt(b.Minimum, b.Maximum); return frustum.Contains(ref bext); },
+                SpatialPredicate = ctx =>
+                {
+                    var sb = ctx.Bounds.ToStride();
+                    var bext = new BoundingBoxExt(sb.Minimum, sb.Maximum);
+                    return frustum.Contains(ref bext);
+                },
                 ResolutionPredicate = ctx =>
                 {
-                    var center = (ctx.Bounds.Minimum + ctx.Bounds.Maximum) * 0.5f;
+                    var sb = ctx.Bounds.ToStride();
+                    var center = (sb.Minimum + sb.Maximum) * 0.5f;
                     double dx = center.X - viewpoint.X;
                     double dy = center.Y - viewpoint.Y;
                     double dz = center.Z - viewpoint.Z;

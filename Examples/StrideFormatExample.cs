@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
 using Copc.Cache;
+using CopcBox = Copc.Geometry.Box;
+using CopcVec3 = Copc.Geometry.Vector3;
 using StrideVector3 = Stride.Core.Mathematics.Vector3;
 using StrideVector4 = Stride.Core.Mathematics.Vector4;
 using Stride.Core.Mathematics;
@@ -47,7 +49,7 @@ namespace Copc.Examples
 
             var center = new StrideVector3((float)centerX, (float)centerY, (float)centerZ);
             var half = (float)size;
-            var box = new BoundingBox(center - new StrideVector3(half), center + new StrideVector3(half));
+            var box = new CopcBox(centerX - half, centerY - half, centerZ - half, centerX + half, centerY + half, centerZ + half);
 
             Console.WriteLine("Querying central region to populate cache...");
             var points = cachedReader.GetPointsInBox(box);

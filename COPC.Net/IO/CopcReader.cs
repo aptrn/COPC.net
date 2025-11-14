@@ -510,14 +510,14 @@ namespace Copc.IO
         /// Gets all nodes at a specific depth/layer in the hierarchy and returns their bounding boxes.
         /// </summary>
         /// <param name="layer">The depth/layer level (0 = root, 1 = first level children, etc.)</param>
-        /// <returns>A dictionary mapping VoxelKey to Box (bounding box) for each node at the specified layer</returns>
-        public Dictionary<VoxelKey, Stride.Core.Mathematics.BoundingBox> GetBoundingBoxesAtLayer(int layer)
+        /// <returns>A dictionary mapping VoxelKey to Copc.Geometry.Box for each node at the specified layer</returns>
+        public Dictionary<VoxelKey, Copc.Geometry.Box> GetBoundingBoxesAtLayer(int layer)
         {
             if (layer < 0)
                 throw new ArgumentOutOfRangeException(nameof(layer), "Layer must be non-negative");
 
             var allNodes = GetAllNodes();
-            var result = new Dictionary<VoxelKey, Stride.Core.Mathematics.BoundingBox>();
+            var result = new Dictionary<VoxelKey, Copc.Geometry.Box>();
 
             foreach (var node in allNodes)
             {
@@ -624,7 +624,7 @@ namespace Copc.IO
         /// <summary>
         /// Gets nodes within a bounding box with optional resolution limit.
         /// </summary>
-        public List<Node> GetNodesWithinBox(Stride.Core.Mathematics.BoundingBox box, double resolution = 0)
+        public List<Node> GetNodesWithinBox(Copc.Geometry.Box box, double resolution = 0)
         {
             var allNodes = GetAllNodes();
             var result = new List<Node>();
@@ -633,13 +633,7 @@ namespace Copc.IO
             {
                 var nodeBounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
 
-                // nodeBounds within box => component-wise containment
-                bool within = nodeBounds.Minimum.X >= box.Minimum.X &&
-                              nodeBounds.Minimum.Y >= box.Minimum.Y &&
-                              nodeBounds.Minimum.Z >= box.Minimum.Z &&
-                              nodeBounds.Maximum.X <= box.Maximum.X &&
-                              nodeBounds.Maximum.Y <= box.Maximum.Y &&
-                              nodeBounds.Maximum.Z <= box.Maximum.Z;
+                bool within = nodeBounds.Within(box);
 
                 if (within)
                 {
@@ -661,7 +655,7 @@ namespace Copc.IO
         /// <summary>
         /// Gets nodes that intersect with a bounding box.
         /// </summary>
-        public List<Node> GetNodesIntersectBox(Stride.Core.Mathematics.BoundingBox box, double resolution = 0)
+        public List<Node> GetNodesIntersectBox(Copc.Geometry.Box box, double resolution = 0)
         {
             var allNodes = GetAllNodes();
             var result = new List<Node>();
@@ -670,7 +664,7 @@ namespace Copc.IO
             {
                 var nodeBounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
 
-                if (nodeBounds.Intersects(ref box))
+                if (nodeBounds.Intersects(box))
                 {
                     // Check resolution if specified
                     if (resolution > 0)
@@ -703,7 +697,8 @@ namespace Copc.IO
             {
                 var nodeBounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
                 
-                var bext = new Stride.Core.Mathematics.BoundingBoxExt(nodeBounds.Minimum, nodeBounds.Maximum);
+                var sb = nodeBounds.ToStride();
+                var bext = new Stride.Core.Mathematics.BoundingBoxExt(sb.Minimum, sb.Maximum);
                 if (frustum.Contains(ref bext))
                 {
                     // Check resolution if specified
@@ -764,7 +759,8 @@ namespace Copc.IO
             {
                 var nodeBounds = node.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
                 
-                if (sphere.Intersects(ref nodeBounds))
+                var sb = nodeBounds.ToStride();
+                if (sphere.Intersects(ref sb))
                 {
                     // Check resolution if specified
                     if (resolution > 0)

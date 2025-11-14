@@ -4,6 +4,7 @@ using Copc.IO;
 using Copc.LazPerf;
 using Copc.Hierarchy;
 using Stride.Core.Mathematics;
+using CopcBox = Copc.Geometry.Box;
 
 namespace Copc.Examples
 {
@@ -133,13 +134,11 @@ namespace Copc.Examples
             double centerZ = (header.MinZ + header.MaxZ) / 2;
             double size = Math.Min(header.MaxX - header.MinX, header.MaxY - header.MinY) * 0.1;
             
-            var box = new BoundingBox(
-                new Vector3((float)(centerX - size/2), (float)(centerY - size/2), (float)(centerZ - size/2)),
-                new Vector3((float)(centerX + size/2), (float)(centerY + size/2), (float)(centerZ + size/2))
-            );
+            var box = new CopcBox(centerX - size/2, centerY - size/2, centerZ - size/2,
+                                  centerX + size/2, centerY + size/2, centerZ + size/2);
 
-            Console.WriteLine($"Query Box: ({box.Minimum.X:F3}, {box.Minimum.Y:F3}, {box.Minimum.Z:F3}) to " +
-                            $"({box.Maximum.X:F3}, {box.Maximum.Y:F3}, {box.Maximum.Z:F3})");
+            Console.WriteLine($"Query Box: ({box.Min.X:F3}, {box.Min.Y:F3}, {box.Min.Z:F3}) to " +
+                            $"({box.Max.X:F3}, {box.Max.Y:F3}, {box.Max.Z:F3})");
 
             var nodes = reader.GetNodesIntersectBox(box);
             Console.WriteLine($"Found {nodes.Count} intersecting nodes");

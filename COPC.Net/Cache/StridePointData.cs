@@ -104,12 +104,14 @@ namespace Copc.Cache
         /// <summary>
         /// Number of points.
         /// </summary>
-        public int Count => Points?.Length ?? 0;
+		public int Count => (Points != null && Points.Length > 0)
+			? Points.Length
+			: (Positions?.Length ?? 0);
 
         /// <summary>
         /// Total memory size estimate in bytes.
         /// </summary>
-        public long MemorySize => Count * (sizeof(float) * 8 + 32); // 8 floats (2 Vector4) + overhead
+		public long MemorySize => (long)Count * (sizeof(float) * 8 + 32); // 8 floats (2 Vector4) + overhead
 
         /// <summary>
         /// Separate arrays for direct GPU upload as vertex attributes.
@@ -228,6 +230,82 @@ namespace Copc.Cache
     /// </summary>
     public static class StrideCacheExtensions
     {
+		/// <summary>
+		/// Builds separated arrays directly from CopcPoint[] without creating StridePoint[]
+		/// and without per-point dictionary allocations. Optionally include only a subset
+		/// of extra-dimension names (pass null to include all).
+		/// </summary>
+		public static StrideCacheData BuildSeparatedFromCopcPoints(
+			CopcPoint[] copcPoints,
+			List<ExtraDimension>? extraDimDefinitions = null,
+			HashSet<string>? includeExtraDimensionNames = null)
+		{
+			int count = copcPoints?.Length ?? 0;
+			var positions = new Vector4[count];
+			var colors = new Vector4[count];
+
+			Dictionary<string, float[]>? extraArrays = null;
+			List<ExtraDimension>? dimsOrdered = null;
+
+			bool includeExtras = extraDimDefinitions != null && extraDimDefinitions.Count > 0;
+			if (includeExtras)
+			{
+				// Prepare the ordered dimension list and allocate arrays per selected dimension
+				dimsOrdered = new List<ExtraDimension>(extraDimDefinitions!);
+				extraArrays = new Dictionary<string, float[]>(dimsOrdered.Count);
+
+				for (int d = 0; d < dimsOrdered.Count; d++)
+				{
+					var dim = dimsOrdered[d];
+					if (includeExtraDimensionNames != null && includeExtraDimensionNames.Count > 0 &&
+						!includeExtraDimensionNames.Contains(dim.Name))
+					{
+						continue;
+					}
+					int comp = dim.GetComponentCount();
+					extraArrays[dim.Name] = new float[count * comp];
+				}
+			}
+
+			for (int i = 0; i < count; i++)
+			{
+				var p = copcPoints[i];
+				positions[i] = new Vector4((float)p.X, (float)p.Y, (float)p.Z, 1.0f);
+
+				float r = p.Red ?? 1.0f;
+				float g = p.Green ?? 1.0f;
+				float b = p.Blue ?? 1.0f;
+				colors[i] = new Vector4(r, g, b, 1.0f);
+
+				if (includeExtras && p.ExtraBytes != null && p.ExtraBytes.Length > 0 && dimsOrdered != null && extraArrays != null)
+				{
+					int offset = 0;
+					for (int d = 0; d < dimsOrdered.Count; d++)
+					{
+						var dim = dimsOrdered[d];
+						int compSize = dim.GetDataSize();
+						int compCount = dim.GetComponentCount();
+						int totalSize = compSize * compCount;
+
+						if (extraArrays.TryGetValue(dim.Name, out var arr))
+						{
+							// Write directly into the destination array at the correct slot
+							int destIndex = i * compCount;
+							dim.ExtractAsFloat32Into(p.ExtraBytes, offset, arr, destIndex);
+						}
+						offset += totalSize;
+					}
+				}
+			}
+
+			return new StrideCacheData
+			{
+				Positions = positions,
+				Colors = colors,
+				ExtraDimensionArrays = extraArrays
+			};
+		}
+
         /// <summary>
         /// Gets all cached data converted to Stride format.
         /// </summary>

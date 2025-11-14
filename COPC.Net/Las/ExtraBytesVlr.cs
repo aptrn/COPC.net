@@ -140,6 +140,28 @@ namespace Copc
             return result;
         }
 
+        /// <summary>
+        /// Extracts the value(s) from raw bytes and writes them as float32 directly into the destination array.
+        /// This avoids per-point allocations when converting extra dimensions at scale.
+        /// </summary>
+        /// <param name="data">Source extra-bytes buffer for a single point</param>
+        /// <param name="offset">Byte offset within extra-bytes where this dimension starts</param>
+        /// <param name="destination">Destination float array to write into</param>
+        /// <param name="destinationIndex">Starting index in destination to write the component(s)</param>
+        public void ExtractAsFloat32Into(byte[] data, int offset, float[] destination, int destinationIndex)
+        {
+            int componentCount = GetComponentCount();
+            for (int i = 0; i < componentCount; i++)
+            {
+                double value = ExtractComponent(data, offset, i);
+                if (Scale[i] != 0.0)
+                {
+                    value = value * Scale[i] + Offset[i];
+                }
+                destination[destinationIndex + i] = (float)value;
+            }
+        }
+
         private double ExtractComponent(byte[] data, int offset, int componentIndex)
         {
             int baseType = ((DataType - 1) % 10) + 1;

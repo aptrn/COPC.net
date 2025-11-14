@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Copc;
 using Stride.Core.Mathematics;
+using CopcBox = Copc.Geometry.Box;
 using Copc.Hierarchy;
 using Copc.IO;
 
@@ -32,19 +33,18 @@ namespace Copc.Examples
             Console.WriteLine($"  Z: [{header.MinZ:F3}, {header.MaxZ:F3}]\n");
 
             // Derive some convenient test shapes
-            var cloudBox = new BoundingBox(
-                new Vector3((float)header.MinX, (float)header.MinY, (float)header.MinZ),
-                new Vector3((float)header.MaxX, (float)header.MaxY, (float)header.MaxZ)
-            );
-            var center = (cloudBox.Minimum + cloudBox.Maximum) * 0.5f;
+            var cloudBox = new CopcBox(header.MinX, header.MinY, header.MinZ, header.MaxX, header.MaxY, header.MaxZ);
+            var center = new Vector3((float)((cloudBox.Min.X + cloudBox.Max.X) * 0.5),
+                                     (float)((cloudBox.Min.Y + cloudBox.Max.Y) * 0.5),
+                                     (float)((cloudBox.Min.Z + cloudBox.Max.Z) * 0.5));
             double halfX = (header.MaxX - header.MinX) * 0.5;
             double halfY = (header.MaxY - header.MinY) * 0.5;
             double halfZ = (header.MaxZ - header.MinZ) * 0.5;
 
             // Box (20% of extent around center)
-            var testBox = new BoundingBox(
-                new Vector3((float)(center.X - halfX * 0.2), (float)(center.Y - halfY * 0.2), (float)(center.Z - halfZ * 0.2)),
-                new Vector3((float)(center.X + halfX * 0.2), (float)(center.Y + halfY * 0.2), (float)(center.Z + halfZ * 0.2))
+            var testBox = new CopcBox(
+                center.X - (float)(halfX * 0.2), center.Y - (float)(halfY * 0.2), center.Z - (float)(halfZ * 0.2),
+                center.X + (float)(halfX * 0.2), center.Y + (float)(halfY * 0.2), center.Z + (float)(halfZ * 0.2)
             );
 
             // Sphere radius at 25% of largest half extent
@@ -100,13 +100,12 @@ namespace Copc.Examples
             // Custom delegate behaviors
             // A) Vertical slab selector: accept nodes within upper half Z slab (no resolution filter)
             Console.WriteLine("--- Custom: Upper Z Slab (spatial only) ---");
-            var upperSlab = new BoundingBox(
-                new Vector3((float)header.MinX, (float)header.MinY, center.Z),
-                new Vector3((float)header.MaxX, (float)header.MaxY, (float)header.MaxZ)
+            var upperSlab = new CopcBox(
+                header.MinX, header.MinY, center.Z, header.MaxX, header.MaxY, (float)header.MaxZ
             );
             var slabOptions = new TraversalOptions
             {
-                SpatialPredicate = ctx => ctx.Bounds.Intersects(ref upperSlab),
+                SpatialPredicate = ctx => ctx.Bounds.Intersects(upperSlab),
                 ResolutionPredicate = _ => true, // accept all nodes (no resolution filtering)
                 ContinueAfterAccept = true
             };
@@ -124,7 +123,8 @@ namespace Copc.Examples
                 SpatialPredicate = _ => true, // no spatial pruning
                 ResolutionPredicate = ctx =>
                 {
-                    var c = (ctx.Bounds.Minimum + ctx.Bounds.Maximum) * 0.5f;
+                    var sb = ctx.Bounds.ToStride();
+                    var c = (sb.Minimum + sb.Maximum) * 0.5f;
                     double dx = c.X - focus.X;
                     double dy = c.Y - focus.Y;
                     double dz = c.Z - focus.Z;

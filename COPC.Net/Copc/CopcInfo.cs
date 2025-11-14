@@ -75,13 +75,14 @@ namespace Copc
         }
 
         /// <summary>
-        /// Gets the COPC cube as a Stride bounding box.
+        /// Gets the COPC cube as a Copc.Geometry.Box.
         /// </summary>
-        public BoundingBox GetCube()
+        public Copc.Geometry.Box GetCube()
         {
-            var center = new Vector3((float)CenterX, (float)CenterY, (float)CenterZ);
-            var half = new Vector3((float)HalfSize);
-            return new BoundingBox(center - half, center + half);
+            return Copc.Geometry.Box.FromCenterAndHalfSize(
+                new Copc.Geometry.Vector3(CenterX, CenterY, CenterZ),
+                HalfSize
+            );
         }
 
         /// <summary>

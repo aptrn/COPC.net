@@ -288,7 +288,8 @@ namespace Copc.Examples
             {
                 var bounds = node.Key.GetBounds(reader.Config.LasHeader, reader.Config.CopcInfo);
                 
-                if (sphere.Intersects(ref bounds))
+                var sb = bounds.ToStride();
+                if (sphere.Intersects(ref sb))
                 {
                     // Node bounding box partially intersects the sphere
                     partiallyInside++;
@@ -318,9 +319,9 @@ namespace Copc.Examples
             long radiusPoints = radiusNodes.Sum(n => (long)n.PointCount);
 
             // Equivalent box query (circumscribing box)
-            var box = new BoundingBox(
-                new Vector3(center.X - (float)radius, center.Y - (float)radius, center.Z - (float)radius),
-                new Vector3(center.X + (float)radius, center.Y + (float)radius, center.Z + (float)radius)
+            var box = new Copc.Geometry.Box(
+                center.X - radius, center.Y - radius, center.Z - radius,
+                center.X + radius, center.Y + radius, center.Z + radius
             );
             var boxNodes = reader.GetNodesIntersectBox(box);
             long boxPoints = boxNodes.Sum(n => (long)n.PointCount);

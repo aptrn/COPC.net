@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Copc.Hierarchy;
 using Copc.IO;
+using System.Threading.Tasks;
 
 namespace Copc.Cache
 {
@@ -381,30 +382,219 @@ namespace Copc.Cache
 		/// </summary>
 		public StrideCacheData GetOrBuildStrideCacheDataSeparated(List<ExtraDimension>? extraDimensions = null)
 		{
+			return GetOrBuildStrideCacheDataSeparated(extraDimensions, null);
+		}
+
+		/// <summary>
+		/// Builds or returns cached Stride-format separated arrays for all cached points, optionally including only a subset of extra dimensions.
+		/// Rebuilds only when cache content changes (on Put/Remove/Clear/Evict).
+		/// </summary>
+		public StrideCacheData GetOrBuildStrideCacheDataSeparated(List<ExtraDimension>? extraDimensions, HashSet<string>? includeExtraDimensionNames)
+		{
 			if (cachedStrideData != null && !strideCacheDirty)
 			{
 				return cachedStrideData;
 			}
 
-			// Convert all cached points to Stride and generate separated arrays
-            var cachedNodes = GetCachedNodes();
-            var allStridePoints = allStridePointsScratch;
-            allStridePoints.Clear();
-			foreach (var nodeInfo in cachedNodes)
+			// Gather cached point arrays and compute total size
+			var cachedNodes = GetCachedNodes();
+			var nodePointArrays = new List<CopcPoint[]>(cachedNodes.Count);
+			var nodeOffsets = new int[cachedNodes.Count];
+			int totalPoints = 0;
+
+			for (int i = 0; i < cachedNodes.Count; i++)
 			{
-				if (TryGetPoints(nodeInfo.Key, out var copcPoints) && copcPoints != null)
+				var nodeInfo = cachedNodes[i];
+				if (TryGetPoints(nodeInfo.Key, out var copcPoints) && copcPoints != null && copcPoints.Length > 0)
 				{
-					var stridePoints = StrideCacheExtensions.ConvertToStridePoints(copcPoints, extraDimensions);
-					allStridePoints.AddRange(stridePoints);
+					nodeOffsets[i] = totalPoints;
+					nodePointArrays.Add(copcPoints);
+					totalPoints += copcPoints.Length;
+				}
+				else
+				{
+					nodeOffsets[i] = totalPoints;
+					nodePointArrays.Add(Array.Empty<CopcPoint>());
 				}
 			}
 
-			var data = new StrideCacheData { Points = allStridePoints.ToArray() };
-			data.GenerateSeparateArrays();
+			// Allocate destination arrays
+			var positions = new Stride.Core.Mathematics.Vector4[totalPoints];
+			var colors = new Stride.Core.Mathematics.Vector4[totalPoints];
+
+			Dictionary<string, float[]>? extraArrays = null;
+			List<ExtraDimension>? dimsOrdered = null;
+			bool includeExtras = extraDimensions != null && extraDimensions.Count > 0;
+			if (includeExtras)
+			{
+				dimsOrdered = new List<ExtraDimension>(extraDimensions!);
+				extraArrays = new Dictionary<string, float[]>(dimsOrdered.Count);
+				for (int d = 0; d < dimsOrdered.Count; d++)
+				{
+					var dim = dimsOrdered[d];
+					if (includeExtraDimensionNames != null && includeExtraDimensionNames.Count > 0 &&
+						!includeExtraDimensionNames.Contains(dim.Name))
+					{
+						continue;
+					}
+					int comp = dim.GetComponentCount();
+					extraArrays[dim.Name] = new float[totalPoints * comp];
+				}
+			}
+
+			// Fill arrays in parallel per node
+			int nodeCount = nodePointArrays.Count;
+			Parallel.For(0, nodeCount, i =>
+			{
+				var pts = nodePointArrays[i];
+				if (pts == null || pts.Length == 0) return;
+				int start = nodeOffsets[i];
+
+				for (int k = 0; k < pts.Length; k++)
+				{
+					int dstIndex = start + k;
+					var p = pts[k];
+
+					positions[dstIndex] = new Stride.Core.Mathematics.Vector4((float)p.X, (float)p.Y, (float)p.Z, 1.0f);
+
+					float r = p.Red ?? 1.0f;
+					float g = p.Green ?? 1.0f;
+					float b = p.Blue ?? 1.0f;
+					colors[dstIndex] = new Stride.Core.Mathematics.Vector4(r, g, b, 1.0f);
+
+					if (includeExtras && p.ExtraBytes != null && p.ExtraBytes.Length > 0 && dimsOrdered != null && extraArrays != null)
+					{
+						int offset = 0;
+						for (int d = 0; d < dimsOrdered.Count; d++)
+						{
+							var dim = dimsOrdered[d];
+							int compSize = dim.GetDataSize();
+							int compCount = dim.GetComponentCount();
+							int totalSize = compSize * compCount;
+
+							if (extraArrays.TryGetValue(dim.Name, out var arr))
+							{
+								int writeIndex = dstIndex * compCount;
+								dim.ExtractAsFloat32Into(p.ExtraBytes, offset, arr, writeIndex);
+							}
+							offset += totalSize;
+						}
+					}
+				}
+			});
+
+			var data = new StrideCacheData
+			{
+				Positions = positions,
+				Colors = colors,
+				ExtraDimensionArrays = extraArrays
+			};
 
 			cachedStrideData = data;
 			strideCacheDirty = false;
 			return data;
+		}
+
+		/// <summary>
+		/// Builds separated arrays only for the specified nodes using cached points.
+		/// Nodes must be pre-warmed; this does not trigger loading.
+		/// includeExtraDimensionNames can be used to restrict which extra dimensions are extracted.
+		/// </summary>
+		public StrideCacheData BuildSeparatedFromNodes(IEnumerable<Node> nodes, List<ExtraDimension>? extraDimensions, HashSet<string>? includeExtraDimensionNames = null)
+		{
+			if (nodes == null) throw new ArgumentNullException(nameof(nodes));
+
+			// Collect arrays per node and compute prefix offsets
+			var nodeList = new List<Node>(nodes);
+			var nodePointArrays = new List<CopcPoint[]>(nodeList.Count);
+			var nodeOffsets = new int[nodeList.Count];
+			int totalPoints = 0;
+
+			for (int i = 0; i < nodeList.Count; i++)
+			{
+				var node = nodeList[i];
+				if (TryGetPoints(node.Key, out var pts) && pts != null && pts.Length > 0)
+				{
+					nodeOffsets[i] = totalPoints;
+					nodePointArrays.Add(pts);
+					totalPoints += pts.Length;
+				}
+				else
+				{
+					nodeOffsets[i] = totalPoints;
+					nodePointArrays.Add(Array.Empty<CopcPoint>());
+				}
+			}
+
+			var positions = new Stride.Core.Mathematics.Vector4[totalPoints];
+			var colors = new Stride.Core.Mathematics.Vector4[totalPoints];
+
+			Dictionary<string, float[]>? extraArrays = null;
+			List<ExtraDimension>? dimsOrdered = null;
+			bool includeExtras = extraDimensions != null && extraDimensions.Count > 0;
+			if (includeExtras)
+			{
+				dimsOrdered = new List<ExtraDimension>(extraDimensions!);
+				extraArrays = new Dictionary<string, float[]>(dimsOrdered.Count);
+				for (int d = 0; d < dimsOrdered.Count; d++)
+				{
+					var dim = dimsOrdered[d];
+					if (includeExtraDimensionNames != null && includeExtraDimensionNames.Count > 0 &&
+						!includeExtraDimensionNames.Contains(dim.Name))
+					{
+						continue;
+					}
+					int comp = dim.GetComponentCount();
+					extraArrays[dim.Name] = new float[totalPoints * comp];
+				}
+			}
+
+			int nodeCount = nodePointArrays.Count;
+			Parallel.For(0, nodeCount, i =>
+			{
+				var pts = nodePointArrays[i];
+				if (pts == null || pts.Length == 0) return;
+				int start = nodeOffsets[i];
+
+				for (int k = 0; k < pts.Length; k++)
+				{
+					int dstIndex = start + k;
+					var p = pts[k];
+
+					positions[dstIndex] = new Stride.Core.Mathematics.Vector4((float)p.X, (float)p.Y, (float)p.Z, 1.0f);
+
+					float r = p.Red ?? 1.0f;
+					float g = p.Green ?? 1.0f;
+					float b = p.Blue ?? 1.0f;
+					colors[dstIndex] = new Stride.Core.Mathematics.Vector4(r, g, b, 1.0f);
+
+					if (includeExtras && p.ExtraBytes != null && p.ExtraBytes.Length > 0 && dimsOrdered != null && extraArrays != null)
+					{
+						int offset = 0;
+						for (int d = 0; d < dimsOrdered.Count; d++)
+						{
+							var dim = dimsOrdered[d];
+							int compSize = dim.GetDataSize();
+							int compCount = dim.GetComponentCount();
+							int totalSize = compSize * compCount;
+
+							if (extraArrays.TryGetValue(dim.Name, out var arr))
+							{
+								int writeIndex = dstIndex * compCount;
+								dim.ExtractAsFloat32Into(p.ExtraBytes, offset, arr, writeIndex);
+							}
+							offset += totalSize;
+						}
+					}
+				}
+			});
+
+			return new StrideCacheData
+			{
+				Positions = positions,
+				Colors = colors,
+				ExtraDimensionArrays = extraArrays
+			};
 		}
 
         /// <summary>

@@ -232,7 +232,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets bounding boxes for all nodes at a specific layer.
         /// </summary>
-        public Dictionary<VoxelKey, StrideBoundingBox> GetBoundingBoxesAtLayer(int layer)
+        public Dictionary<VoxelKey, Copc.Geometry.Box> GetBoundingBoxesAtLayer(int layer)
         {
             return reader.GetBoundingBoxesAtLayer(layer);
         }
@@ -240,7 +240,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes within a bounding box.
         /// </summary>
-        public List<Node> GetNodesWithinBox(StrideBoundingBox box, double resolution = 0)
+        public List<Node> GetNodesWithinBox(Copc.Geometry.Box box, double resolution = 0)
         {
             return reader.GetNodesWithinBox(box, resolution);
         }
@@ -248,7 +248,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes that intersect with a bounding box.
         /// </summary>
-        public List<Node> GetNodesIntersectBox(StrideBoundingBox box, double resolution = 0)
+        public List<Node> GetNodesIntersectBox(Copc.Geometry.Box box, double resolution = 0)
         {
             return reader.GetNodesIntersectBox(box, resolution);
         }
@@ -325,7 +325,7 @@ namespace Copc.Cache
         /// <param name="box">The bounding box to query</param>
         /// <param name="resolution">Optional minimum resolution filter</param>
         /// <returns>Array of points within the box</returns>
-        public CopcPoint[] GetPointsInBox(StrideBoundingBox box, double resolution = 0)
+        public CopcPoint[] GetPointsInBox(Copc.Geometry.Box box, double resolution = 0)
         {
             var nodes = reader.GetNodesIntersectBox(box, resolution);
             return GetPointsFromNodes(nodes);
@@ -439,7 +439,19 @@ namespace Copc.Cache
         /// <returns>All cached points with separate arrays (Positions, Colors, Intensities, ExtraDimensionArrays, etc.)</returns>
         public StrideCacheData GetCacheDataSeparated()
         {
-            return cache.GetOrBuildStrideCacheDataSeparated(reader.Config.ExtraDimensions);
+			return cache.GetOrBuildStrideCacheDataSeparated(reader.Config.ExtraDimensions);
+		}
+
+		/// <summary>
+		/// Gets all currently cached data with separate arrays, including only the specified extra dimensions (if provided).
+		/// Pass null or empty to include all extra dimensions.
+		/// </summary>
+		public StrideCacheData GetCacheDataSeparated(string[]? includeExtraDimensionNames)
+		{
+			HashSet<string>? include = null;
+			if (includeExtraDimensionNames != null && includeExtraDimensionNames.Length > 0)
+				include = new HashSet<string>(includeExtraDimensionNames);
+			return cache.GetOrBuildStrideCacheDataSeparated(reader.Config.ExtraDimensions, include);
         }
 
         /// <summary>
@@ -449,22 +461,19 @@ namespace Copc.Cache
         /// <param name="nodes">Nodes whose cached points should be converted</param>
         public StrideCacheData GetCacheDataSeparatedFromNodes(IEnumerable<Node> nodes)
         {
-            if (nodes == null) throw new ArgumentNullException(nameof(nodes));
+			return cache.BuildSeparatedFromNodes(nodes, reader.Config.ExtraDimensions, null);
+		}
 
-            var allCopcPoints = allCopcPointsScratch;
-            allCopcPoints.Clear();
-            foreach (var node in nodes)
-            {
-                if (cache.TryGetPoints(node.Key, out var pts) && pts != null && pts.Length > 0)
-                {
-                    allCopcPoints.AddRange(pts);
-                }
-            }
-
-            var stridePoints = StrideCacheExtensions.ConvertToStridePoints(allCopcPoints.ToArray(), reader.Config.ExtraDimensions);
-            var data = new StrideCacheData { Points = stridePoints };
-            data.GenerateSeparateArrays();
-            return data;
+		/// <summary>
+		/// Gets separated data only for the specified nodes, including only the specified extra dimensions (if provided).
+		/// Does not trigger loading; nodes must be pre-warmed via Update().
+		/// </summary>
+		public StrideCacheData GetCacheDataSeparatedFromNodes(IEnumerable<Node> nodes, string[]? includeExtraDimensionNames)
+		{
+			HashSet<string>? include = null;
+			if (includeExtraDimensionNames != null && includeExtraDimensionNames.Length > 0)
+				include = new HashSet<string>(includeExtraDimensionNames);
+			return cache.BuildSeparatedFromNodes(nodes, reader.Config.ExtraDimensions, include);
         }
 
         /// <summary>
@@ -482,7 +491,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets points in a box and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInBox(StrideBoundingBox box, double resolution = 0)
+        public StridePoint[] GetStridePointsInBox(Copc.Geometry.Box box, double resolution = 0)
         {
             var copcPoints = GetPointsInBox(box, resolution);
             return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);

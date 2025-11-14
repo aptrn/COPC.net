@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Copc.Hierarchy;
+using CopcBox = Copc.Geometry.Box;
 using Stride.Core.Mathematics;
 
 namespace Copc.Examples
@@ -460,14 +461,11 @@ namespace Copc.Examples
                 return;
             }
 
-            var bbox = new BoundingBox(
-                new Vector3((float)bboxMinX, (float)bboxMinY, (float)bboxMinZ),
-                new Vector3((float)bboxMaxX, (float)bboxMaxY, (float)bboxMaxZ)
-            );
+            var bbox = new CopcBox(bboxMinX, bboxMinY, bboxMinZ, bboxMaxX, bboxMaxY, bboxMaxZ);
 
             Console.WriteLine("Random Bounding Box (within maximum bounds):");
-            Console.WriteLine($"  Min: ({bbox.Minimum.X:F3}, {bbox.Minimum.Y:F3}, {bbox.Minimum.Z:F3})");
-            Console.WriteLine($"  Max: ({bbox.Maximum.X:F3}, {bbox.Maximum.Y:F3}, {bbox.Maximum.Z:F3})");
+            Console.WriteLine($"  Min: ({bbox.Min.X:F3}, {bbox.Min.Y:F3}, {bbox.Min.Z:F3})");
+            Console.WriteLine($"  Max: ({bbox.Max.X:F3}, {bbox.Max.Y:F3}, {bbox.Max.Z:F3})");
             Console.WriteLine($"  Size: {boxSizeX:F3} x {boxSizeY:F3} x {boxSizeZ:F3}");
             Console.WriteLine($"  ✓ Bounding box is completely within cloud bounds\n");
 
@@ -479,7 +477,7 @@ namespace Copc.Examples
             var matchingNodes = allNodesAtLod.Where(n => 
             {
                 var nodeBounds = n.Key.GetBounds(header, info);
-                return nodeBounds.Intersects(ref bbox);
+                return nodeBounds.Intersects(bbox);
             }).ToList();
             
             Console.WriteLine($"Nodes intersecting bounding box: {matchingNodes.Count}");
@@ -507,9 +505,9 @@ namespace Copc.Examples
 
             // Filter points to those within the bounding box
             var pointsInBox = allPoints.Where(p => 
-                p.X >= bbox.Minimum.X && p.X <= bbox.Maximum.X &&
-                p.Y >= bbox.Minimum.Y && p.Y <= bbox.Maximum.Y &&
-                p.Z >= bbox.Minimum.Z && p.Z <= bbox.Maximum.Z).ToArray();
+                p.X >= bbox.Min.X && p.X <= bbox.Max.X &&
+                p.Y >= bbox.Min.Y && p.Y <= bbox.Max.Y &&
+                p.Z >= bbox.Min.Z && p.Z <= bbox.Max.Z).ToArray();
             
             Console.WriteLine($"Points within bounding box: {pointsInBox.Length:N0}\n");
 
@@ -568,10 +566,7 @@ namespace Copc.Examples
             var header = reader.Config.LasHeader;
             var info = reader.Config.CopcInfo;
 
-            var bbox = new BoundingBox(
-                new Vector3((float)minX, (float)minY, (float)minZ),
-                new Vector3((float)maxX, (float)maxY, (float)maxZ)
-            );
+            var bbox = new CopcBox(minX, minY, minZ, maxX, maxY, maxZ);
 
             // Display cloud bounds
             Console.WriteLine("Point Cloud Bounds:");
@@ -589,7 +584,7 @@ namespace Copc.Examples
             var matchingNodes = allNodesAtLod.Where(n =>
             {
                 var nodeBounds = n.Key.GetBounds(header, info);
-                return nodeBounds.Intersects(ref bbox);
+                return nodeBounds.Intersects(bbox);
             }).ToList();
 
             Console.WriteLine($"Total nodes at LOD {targetLod}: {allNodesAtLod.Count}");
@@ -612,7 +607,7 @@ namespace Copc.Examples
                 var nodeBounds = node.Key.GetBounds(header, info);
                 Console.WriteLine($"Node {i + 1}: {node.Key}");
                 Console.WriteLine($"  Point count: {node.PointCount:N0}");
-                Console.WriteLine($"  Bounds: Min({nodeBounds.Minimum.X:F2},{nodeBounds.Minimum.Y:F2},{nodeBounds.Minimum.Z:F2}) Max({nodeBounds.Maximum.X:F2},{nodeBounds.Maximum.Y:F2},{nodeBounds.Maximum.Z:F2})");
+                Console.WriteLine($"  Bounds: Min({nodeBounds.Min.X:F2},{nodeBounds.Min.Y:F2},{nodeBounds.Min.Z:F2}) Max({nodeBounds.Max.X:F2},{nodeBounds.Max.Y:F2},{nodeBounds.Max.Z:F2})");
             }
             if (matchingNodes.Count > 10)
             {
@@ -641,10 +636,7 @@ namespace Copc.Examples
             var header = reader.Config.LasHeader;
             var info = reader.Config.CopcInfo;
 
-            var bbox = new BoundingBox(
-                new Vector3((float)minX, (float)minY, (float)minZ),
-                new Vector3((float)maxX, (float)maxY, (float)maxZ)
-            );
+            var bbox = new CopcBox(minX, minY, minZ, maxX, maxY, maxZ);
 
             // Display cloud bounds
             Console.WriteLine("Point Cloud Bounds:");
@@ -665,7 +657,7 @@ namespace Copc.Examples
             var matchingNodes = allNodesAtResolution.Where(n =>
             {
                 var nodeBounds = n.Key.GetBounds(header, info);
-                return nodeBounds.Intersects(ref bbox);
+                return nodeBounds.Intersects(bbox);
             }).ToList();
 
             Console.WriteLine($"Total nodes at resolution {actualResolution:F6}: {allNodesAtResolution.Count}");
@@ -688,7 +680,7 @@ namespace Copc.Examples
                 var nodeBounds = node.Key.GetBounds(header, info);
                 Console.WriteLine($"Node {i + 1}: {node.Key}");
                 Console.WriteLine($"  Point count: {node.PointCount:N0}");
-                Console.WriteLine($"  Bounds: Min({nodeBounds.Minimum.X:F2},{nodeBounds.Minimum.Y:F2},{nodeBounds.Minimum.Z:F2}) Max({nodeBounds.Maximum.X:F2},{nodeBounds.Maximum.Y:F2},{nodeBounds.Maximum.Z:F2})");
+                Console.WriteLine($"  Bounds: Min({nodeBounds.Min.X:F2},{nodeBounds.Min.Y:F2},{nodeBounds.Min.Z:F2}) Max({nodeBounds.Max.X:F2},{nodeBounds.Max.Y:F2},{nodeBounds.Max.Z:F2})");
             }
             if (matchingNodes.Count > 10)
             {
@@ -716,10 +708,7 @@ namespace Copc.Examples
             var header = reader.Config.LasHeader;
             var info = reader.Config.CopcInfo;
 
-            var bbox = new BoundingBox(
-                new Vector3((float)minX, (float)minY, (float)minZ),
-                new Vector3((float)maxX, (float)maxY, (float)maxZ)
-            );
+            var bbox = new CopcBox(minX, minY, minZ, maxX, maxY, maxZ);
 
             // Display cloud bounds
             Console.WriteLine("Point Cloud Bounds:");
@@ -736,7 +725,7 @@ namespace Copc.Examples
                 .Where(n =>
                 {
                 var nodeBounds = n.Key.GetBounds(header, info);
-                return nodeBounds.Intersects(ref bbox);
+                return nodeBounds.Intersects(bbox);
                 })
                 .GroupBy(n => n.Key.D)
                 .OrderBy(g => g.Key)
@@ -784,7 +773,7 @@ namespace Copc.Examples
                 {
                     var nodeBounds = node.Key.GetBounds(header, info);
                     Console.WriteLine($"  {node.Key}: {node.PointCount:N0} points");
-                    Console.WriteLine($"    Bounds: Min({nodeBounds.Minimum.X:F3},{nodeBounds.Minimum.Y:F3},{nodeBounds.Minimum.Z:F3}) Max({nodeBounds.Maximum.X:F3},{nodeBounds.Maximum.Y:F3},{nodeBounds.Maximum.Z:F3})");
+                    Console.WriteLine($"    Bounds: Min({nodeBounds.Min.X:F3},{nodeBounds.Min.Y:F3},{nodeBounds.Min.Z:F3}) Max({nodeBounds.Max.X:F3},{nodeBounds.Max.Y:F3},{nodeBounds.Max.Z:F3})");
                 }
                 if (lodGroup.Count() > 5)
                 {
@@ -816,9 +805,9 @@ namespace Copc.Examples
 
                     // Filter points to bounding box
                     var pointsInBox = allPoints.Where(p =>
-                        p.X >= bbox.Minimum.X && p.X <= bbox.Maximum.X &&
-                        p.Y >= bbox.Minimum.Y && p.Y <= bbox.Maximum.Y &&
-                        p.Z >= bbox.Minimum.Z && p.Z <= bbox.Maximum.Z).ToArray();
+                        p.X >= bbox.Min.X && p.X <= bbox.Max.X &&
+                        p.Y >= bbox.Min.Y && p.Y <= bbox.Max.Y &&
+                        p.Z >= bbox.Min.Z && p.Z <= bbox.Max.Z).ToArray();
 
                     Console.WriteLine($"Points within bounding box: {pointsInBox.Length:N0}\n");
 
@@ -841,7 +830,7 @@ namespace Copc.Examples
             Console.WriteLine("✅ Complete!");
         }
 
-        static void QueryAndPrintPoints(IO.CopcReader reader, Copc.LasHeader header, BoundingBox bbox, long totalPointsInNodes, List<Hierarchy.Node> matchingNodes)
+        static void QueryAndPrintPoints(IO.CopcReader reader, Copc.LasHeader header, CopcBox bbox, long totalPointsInNodes, List<Hierarchy.Node> matchingNodes)
         {
             Console.WriteLine("\n=== Decompressing Points ===");
             Console.WriteLine("Using LAZ-perf to decompress only relevant node chunks...\n");
@@ -855,9 +844,9 @@ namespace Copc.Examples
 
             // Filter points to bounding box
             var pointsInBox = allPoints.Where(p =>
-                p.X >= bbox.Minimum.X && p.X <= bbox.Maximum.X &&
-                p.Y >= bbox.Minimum.Y && p.Y <= bbox.Maximum.Y &&
-                p.Z >= bbox.Minimum.Z && p.Z <= bbox.Maximum.Z).ToArray();
+                p.X >= bbox.Min.X && p.X <= bbox.Max.X &&
+                p.Y >= bbox.Min.Y && p.Y <= bbox.Max.Y &&
+                p.Z >= bbox.Min.Z && p.Z <= bbox.Max.Z).ToArray();
 
             Console.WriteLine($"Points within bounding box: {pointsInBox.Length:N0}\n");
 
@@ -982,10 +971,7 @@ namespace Copc.Examples
             var header = reader.Config.LasHeader;
             var info = reader.Config.CopcInfo;
 
-            var bbox = new BoundingBox(
-                new Vector3((float)minX, (float)minY, (float)minZ),
-                new Vector3((float)maxX, (float)maxY, (float)maxZ)
-            );
+            var bbox = new CopcBox(minX, minY, minZ, maxX, maxY, maxZ);
 
             // Display cloud bounds
             Console.WriteLine("Point Cloud Bounds:");
@@ -1004,7 +990,7 @@ namespace Copc.Examples
             var matchingNodes = allNodesAtLod.Where(n =>
             {
                 var nodeBounds = n.Key.GetBounds(header, info);
-                return nodeBounds.Intersects(ref bbox);
+                return nodeBounds.Intersects(bbox);
             }).ToList();
             querySw.Stop();
 
@@ -1040,9 +1026,9 @@ namespace Copc.Examples
             // Filter points to bounding box
             var filterSw = System.Diagnostics.Stopwatch.StartNew();
             var pointsInBox = allPoints.Where(p =>
-                p.X >= bbox.Minimum.X && p.X <= bbox.Maximum.X &&
-                p.Y >= bbox.Minimum.Y && p.Y <= bbox.Maximum.Y &&
-                p.Z >= bbox.Minimum.Z && p.Z <= bbox.Maximum.Z).ToArray();
+                p.X >= bbox.Min.X && p.X <= bbox.Max.X &&
+                p.Y >= bbox.Min.Y && p.Y <= bbox.Max.Y &&
+                p.Z >= bbox.Min.Z && p.Z <= bbox.Max.Z).ToArray();
             filterSw.Stop();
 
             Console.WriteLine($"Points within bounding box: {pointsInBox.Length:N0}");
@@ -1190,9 +1176,9 @@ namespace Copc.Examples
                 
                 // For demo, collect points from nodes we know intersect the frustum
                 var nodePoints = allPoints.Where(p =>
-                    p.X >= nodeBounds.Minimum.X && p.X <= nodeBounds.Maximum.X &&
-                    p.Y >= nodeBounds.Minimum.Y && p.Y <= nodeBounds.Maximum.Y &&
-                    p.Z >= nodeBounds.Minimum.Z && p.Z <= nodeBounds.Maximum.Z).ToList();
+                    p.X >= nodeBounds.Min.X && p.X <= nodeBounds.Max.X &&
+                    p.Y >= nodeBounds.Min.Y && p.Y <= nodeBounds.Max.Y &&
+                    p.Z >= nodeBounds.Min.Z && p.Z <= nodeBounds.Max.Z).ToList();
                 
                 pointsInFrustum.AddRange(nodePoints);
             }

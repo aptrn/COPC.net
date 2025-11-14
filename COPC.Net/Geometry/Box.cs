@@ -51,6 +51,7 @@ namespace Copc.Geometry
         public Vector3 Min => new Vector3(MinX, MinY, MinZ);
         public Vector3 Max => new Vector3(MaxX, MaxY, MaxZ);
         public Vector3 Center => new Vector3((MinX + MaxX) / 2, (MinY + MaxY) / 2, (MinZ + MaxZ) / 2);
+        public Vector3 Size => new Vector3(MaxX - MinX, MaxY - MinY, MaxZ - MinZ);
 
         /// <summary>
         /// Tests if this box contains a point.

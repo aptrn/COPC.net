@@ -4,6 +4,7 @@ using System.Linq;
 using Copc.Cache;
 using Stride.Core.Mathematics;
 using Copc.IO;
+using CopcBox = Copc.Geometry.Box;
 
 namespace Copc.Examples
 {
@@ -102,7 +103,7 @@ namespace Copc.Examples
 
             var center = new Vector3((float)centerX, (float)centerY, (float)centerZ);
             var half = (float)size;
-            var box = new BoundingBox(center - new Vector3(half), center + new Vector3(half));
+            var box = new CopcBox(centerX - half, centerY - half, centerZ - half, centerX + half, centerY + half, centerZ + half);
 
             Console.WriteLine($"Querying box around center: size={size:F2}\n");
 

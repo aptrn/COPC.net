@@ -148,22 +148,23 @@ namespace Copc.Hierarchy
         /// <summary>
         /// Calculates the bounding box for this voxel given header information.
         /// </summary>
-        public BoundingBox GetBounds(LasHeader header, CopcInfo copcInfo)
+        public Copc.Geometry.Box GetBounds(LasHeader header, CopcInfo copcInfo)
         {
             double span = GetSpanAtDepth(D, header);
             
             // Calculate the voxel bounds based on the COPC cube
-            var cubeCenter = new Vector3((float)copcInfo.CenterX, (float)copcInfo.CenterY, (float)copcInfo.CenterZ);
-            var halfSize = (float)copcInfo.HalfSize;
-            var cube = new BoundingBox(cubeCenter - new Vector3(halfSize), cubeCenter + new Vector3(halfSize));
+            double cubeMinX = copcInfo.CenterX - copcInfo.HalfSize;
+            double cubeMinY = copcInfo.CenterY - copcInfo.HalfSize;
+            double cubeMinZ = copcInfo.CenterZ - copcInfo.HalfSize;
 
-            double minX = cube.Minimum.X + X * span;
-            double minY = cube.Minimum.Y + Y * span;
-            double minZ = cube.Minimum.Z + Z * span;
+            double minX = cubeMinX + X * span;
+            double minY = cubeMinY + Y * span;
+            double minZ = cubeMinZ + Z * span;
 
-            var min = new Vector3((float)minX, (float)minY, (float)minZ);
-            var max = new Vector3((float)(minX + span), (float)(minY + span), (float)(minZ + span));
-            return new BoundingBox(min, max);
+            return new Copc.Geometry.Box(
+                minX, minY, minZ,
+                minX + span, minY + span, minZ + span
+            );
         }
 
         /// <summary>

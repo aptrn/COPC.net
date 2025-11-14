@@ -1,6 +1,5 @@
 using System;
 using Copc;
-using Stride.Core.Mathematics;
 
 namespace Copc.Hierarchy
 {
@@ -11,7 +10,7 @@ namespace Copc.Hierarchy
     public readonly struct NodeTraversalContext
     {
         public VoxelKey Key { get; }
-        public BoundingBox Bounds { get; }
+        public Copc.Geometry.Box Bounds { get; }
         public bool IsNode { get; }
         public int PointCount { get; }
         public LasHeader Header { get; }
@@ -19,7 +18,7 @@ namespace Copc.Hierarchy
 
         public int Depth => Key.D;
 
-        public NodeTraversalContext(VoxelKey key, BoundingBox bounds, bool isNode, int pointCount, LasHeader header, CopcInfo copcInfo)
+        public NodeTraversalContext(VoxelKey key, Copc.Geometry.Box bounds, bool isNode, int pointCount, LasHeader header, CopcInfo copcInfo)
         {
             Key = key;
             Bounds = bounds;

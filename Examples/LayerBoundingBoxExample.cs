@@ -45,15 +45,18 @@ namespace Copc.Examples
                 if (displayCount < maxDisplay)
                 {
                     Console.WriteLine($"  Node {key}:");
-                    Console.WriteLine($"    Min: ({box.Minimum.X:F2}, {box.Minimum.Y:F2}, {box.Minimum.Z:F2})");
-                    Console.WriteLine($"    Max: ({box.Maximum.X:F2}, {box.Maximum.Y:F2}, {box.Maximum.Z:F2})");
-                    var center = (box.Minimum + box.Maximum) * 0.5f;
+                    Console.WriteLine($"    Min: ({box.Min.X:F2}, {box.Min.Y:F2}, {box.Min.Z:F2})");
+                    Console.WriteLine($"    Max: ({box.Max.X:F2}, {box.Max.Y:F2}, {box.Max.Z:F2})");
+                    var center = new Vector3(
+                        (float)((box.Min.X + box.Max.X) * 0.5),
+                        (float)((box.Min.Y + box.Max.Y) * 0.5),
+                        (float)((box.Min.Z + box.Max.Z) * 0.5));
                     Console.WriteLine($"    Center: ({center.X:F2}, {center.Y:F2}, {center.Z:F2})");
                     
                     // Calculate dimensions
-                    double width = box.Maximum.X - box.Minimum.X;
-                    double height = box.Maximum.Y - box.Minimum.Y;
-                    double depth = box.Maximum.Z - box.Minimum.Z;
+                    double width = box.Max.X - box.Min.X;
+                    double height = box.Max.Y - box.Min.Y;
+                    double depth = box.Max.Z - box.Min.Z;
                     Console.WriteLine($"    Dimensions: {width:F2} x {height:F2} x {depth:F2}\n");
                     
                     displayCount++;
@@ -74,9 +77,9 @@ namespace Copc.Examples
                 double avgWidth = 0, avgHeight = 0, avgDepth = 0;
                 foreach (var box in boundingBoxes.Values)
                 {
-                    avgWidth += box.Maximum.X - box.Minimum.X;
-                    avgHeight += box.Maximum.Y - box.Minimum.Y;
-                    avgDepth += box.Maximum.Z - box.Minimum.Z;
+                    avgWidth += box.Max.X - box.Min.X;
+                    avgHeight += box.Max.Y - box.Min.Y;
+                    avgDepth += box.Max.Z - box.Min.Z;
                 }
                 avgWidth /= boundingBoxes.Count;
                 avgHeight /= boundingBoxes.Count;
@@ -165,7 +168,7 @@ namespace Copc.Examples
                     double avgWidth = 0;
                 foreach (var box in boundingBoxes.Values)
                     {
-                    avgWidth += box.Maximum.X - box.Minimum.X;
+                    avgWidth += box.Max.X - box.Min.X;
                     }
                     avgWidth /= boundingBoxes.Count;
 
