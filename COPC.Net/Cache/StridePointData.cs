@@ -46,10 +46,10 @@ namespace Copc.Cache
                     1.0f  // W component set to 1
                 ),
                 Color = new Vector4(
-                    // Normalize RGB from 0-65535 to 0-1, default to white if not present
-                    (point.Red ?? 65535) / 65535.0f,
-                    (point.Green ?? 65535) / 65535.0f,
-                    (point.Blue ?? 65535) / 65535.0f,
+					// CopcPoint stores RGB already normalized to 0-1; default to white if not present
+					point.Red ?? 1.0f,
+					point.Green ?? 1.0f,
+					point.Blue ?? 1.0f,
                     1.0f  // Alpha component set to 1
                 )
             };

@@ -73,8 +73,13 @@ namespace Copc.Examples
         {
             var extraInfo = FormatExtraDimensions(point, extraDimensions);
             
-            Console.WriteLine($"[{index,3}] X={point.X,12:F3} Y={point.Y,12:F3} Z={point.Z,12:F3} " +
-                            $"RGB=({point.Red},{point.Green},{point.Blue}){extraInfo}");
+			// CopcPoint stores normalized 0-1 color; default to white if missing.
+			float r = point.Red ?? 1.0f;
+			float g = point.Green ?? 1.0f;
+			float b = point.Blue ?? 1.0f;
+
+			Console.WriteLine($"[{index,3}] X={point.X,12:F3} Y={point.Y,12:F3} Z={point.Z,12:F3} " +
+							$"RGB=({r:F3},{g:F3},{b:F3}){extraInfo}");
         }
 
         /// <summary>
