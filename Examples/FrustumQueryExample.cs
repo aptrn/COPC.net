@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
-using Copc.Geometry;
 using Copc.IO;
+using Stride.Core.Mathematics;
 
 namespace Copc.Examples
 {
@@ -83,15 +83,7 @@ namespace Copc.Examples
 
             // Create frustum once and reuse it
             double[] viewProjectionMatrix = CreateExampleViewProjectionMatrix();
-            var frustum = Frustum.FromViewProjectionMatrix(viewProjectionMatrix);
-
-            Console.WriteLine("Frustum planes:");
-            Console.WriteLine($"  Left:   {frustum.Left}");
-            Console.WriteLine($"  Right:  {frustum.Right}");
-            Console.WriteLine($"  Bottom: {frustum.Bottom}");
-            Console.WriteLine($"  Top:    {frustum.Top}");
-            Console.WriteLine($"  Near:   {frustum.Near}");
-            Console.WriteLine($"  Far:    {frustum.Far}");
+            var frustum = Copc.Geometry.Frustum.CreateStrideBoundingFrustum(viewProjectionMatrix);
 
             // Query at different resolutions using the same frustum
             double[] resolutions = { 1.0, 0.5, 0.1 };
@@ -114,11 +106,11 @@ namespace Copc.Examples
             double[] viewMatrix = CreateExampleViewMatrix();
             double[] projectionMatrix = CreateExampleProjectionMatrix();
 
-            // Combine them into a frustum
-            var frustum = Frustum.FromViewAndProjection(viewMatrix, projectionMatrix);
+            // Combine projection * view into a single row-major matrix
+            double[] vp = MultiplyMatrices(projectionMatrix, viewMatrix);
 
-            // Query nodes
-            var nodes = reader.GetNodesIntersectFrustum(frustum);
+            // Query nodes using the combined matrix
+            var nodes = reader.GetNodesIntersectFrustum(vp);
             Console.WriteLine($"Found {nodes.Count} nodes visible from camera");
             var sample = nodes.Take(Math.Min(2, nodes.Count)).ToList();
             if (sample.Count > 0)
@@ -133,18 +125,9 @@ namespace Copc.Examples
         /// </summary>
         public static void TestFrustumIntersection()
         {
+            // For simplicity, demonstrate the matrix-based query path only
             double[] viewProjectionMatrix = CreateExampleViewProjectionMatrix();
-            var frustum = Frustum.FromViewProjectionMatrix(viewProjectionMatrix);
-
-            // Test a point
-            var testPoint = new Vector3(100, 200, 50);
-            bool pointInside = frustum.ContainsPoint(testPoint);
-            Console.WriteLine($"Point {testPoint} is {(pointInside ? "inside" : "outside")} the frustum");
-
-            // Test a bounding box
-            var testBox = new Box(100, 200, 50, 110, 210, 60);
-            bool boxIntersects = frustum.IntersectsBox(testBox);
-            Console.WriteLine($"Box {testBox} {(boxIntersects ? "intersects" : "does not intersect")} the frustum");
+            Console.WriteLine("Use GetNodesIntersectFrustum(viewProjectionMatrix) to query visible nodes.");
         }
 
         /// <summary>
@@ -230,6 +213,24 @@ namespace Copc.Examples
                 0.0,      0.0,  (far+near)/(near-far),        (2*far*near)/(near-far),
                 0.0,      0.0, -1.0,                           0.0
             };
+        }
+
+        private static double[] MultiplyMatrices(double[] a, double[] b)
+        {
+            var result = new double[16];
+            for (int row = 0; row < 4; row++)
+            {
+                for (int col = 0; col < 4; col++)
+                {
+                    double sum = 0;
+                    for (int k = 0; k < 4; k++)
+                    {
+                        sum += a[row * 4 + k] * b[k * 4 + col];
+                    }
+                    result[row * 4 + col] = sum;
+                }
+            }
+            return result;
         }
 
         #endregion

@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
-using Copc.Geometry;
 using Copc.Hierarchy;
 using Copc.IO;
 using StrideVector3 = Stride.Core.Mathematics.Vector3;
 using StrideVector4 = Stride.Core.Mathematics.Vector4;
+using StrideBoundingBox = Stride.Core.Mathematics.BoundingBox;
+using StrideBoundingFrustum = Stride.Core.Mathematics.BoundingFrustum;
+using StrideBoundingSphere = Stride.Core.Mathematics.BoundingSphere;
 using System.Linq;
 using System.Threading.Tasks;
+using Copc.LazPerf;
 
 namespace Copc.Cache
 {
@@ -20,6 +23,9 @@ namespace Copc.Cache
         private readonly PointCache cache;
         private readonly bool ownReader;
         private bool disposed;
+        private readonly List<Node> nodesToLoadScratch = new List<Node>();
+        private readonly List<(Node node, byte[] data)> compressedScratch = new List<(Node node, byte[] data)>();
+        private readonly List<CopcPoint> allCopcPointsScratch = new List<CopcPoint>();
 
         /// <summary>
         /// Gets the underlying COPC reader.
@@ -47,6 +53,8 @@ namespace Copc.Cache
             this.reader = reader ?? throw new ArgumentNullException(nameof(reader));
             this.cache = cache ?? throw new ArgumentNullException(nameof(cache));
             this.ownReader = ownReader;
+            // Provide extra dimension definitions to the cache so it can precompute separated arrays on Put()
+            this.cache.SetExtraDimensions(reader.Config.ExtraDimensions);
         }
 
         /// <summary>
@@ -106,21 +114,22 @@ namespace Copc.Cache
                 throw new ArgumentNullException(nameof(nodes));
 
             // Determine which nodes actually need loading
-            var nodesToLoad = new List<Node>();
+            nodesToLoadScratch.Clear();
             foreach (var node in nodes)
             {
                 if (!cache.Contains(node.Key))
                 {
-                    nodesToLoad.Add(node);
+                    nodesToLoadScratch.Add(node);
                 }
             }
 
-            if (nodesToLoad.Count == 0)
+            if (nodesToLoadScratch.Count == 0)
                 return;
 
             // Step 1: Read compressed chunks sequentially (stream is not thread-safe)
-            var compressed = new List<(Node node, byte[] data)>(nodesToLoad.Count);
-            foreach (var node in nodesToLoad)
+            var compressed = compressedScratch;
+            compressed.Clear();
+            foreach (var node in nodesToLoadScratch)
             {
                 try
                 {
@@ -208,6 +217,14 @@ namespace Copc.Cache
         }
 
         /// <summary>
+        /// Traverses the hierarchy using generic spatial and resolution delegates.
+        /// </summary>
+        public List<Node> TraverseNodes(TraversalOptions options)
+        {
+            return reader.TraverseNodes(options);
+        }
+
+        /// <summary>
         /// Gets all nodes at a specific depth/layer.
         /// </summary>
         public List<Node> GetNodesAtLayer(int layer)
@@ -218,7 +235,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets bounding boxes for all nodes at a specific layer.
         /// </summary>
-        public Dictionary<VoxelKey, Box> GetBoundingBoxesAtLayer(int layer)
+        public Dictionary<VoxelKey, Copc.Geometry.Box> GetBoundingBoxesAtLayer(int layer)
         {
             return reader.GetBoundingBoxesAtLayer(layer);
         }
@@ -226,7 +243,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes within a bounding box.
         /// </summary>
-        public List<Node> GetNodesWithinBox(Box box, double resolution = 0)
+        public List<Node> GetNodesWithinBox(Copc.Geometry.Box box, double resolution = 0)
         {
             return reader.GetNodesWithinBox(box, resolution);
         }
@@ -234,7 +251,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes that intersect with a bounding box.
         /// </summary>
-        public List<Node> GetNodesIntersectBox(Box box, double resolution = 0)
+        public List<Node> GetNodesIntersectBox(Copc.Geometry.Box box, double resolution = 0)
         {
             return reader.GetNodesIntersectBox(box, resolution);
         }
@@ -242,7 +259,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes that intersect with a view frustum.
         /// </summary>
-        public List<Node> GetNodesIntersectFrustum(Frustum frustum, double resolution = 0)
+        public List<Node> GetNodesIntersectFrustum(StrideBoundingFrustum frustum, double resolution = 0)
         {
             return reader.GetNodesIntersectFrustum(frustum, resolution);
         }
@@ -266,7 +283,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes within a spherical radius.
         /// </summary>
-        public List<Node> GetNodesWithinRadius(Sphere sphere, double resolution = 0)
+        public List<Node> GetNodesWithinRadius(StrideBoundingSphere sphere, double resolution = 0)
         {
             return reader.GetNodesWithinRadius(sphere, resolution);
         }
@@ -282,7 +299,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets nodes within a spherical radius (from Vector3).
         /// </summary>
-        public List<Node> GetNodesWithinRadius(Vector3 center, double radius, double resolution = 0)
+        public List<Node> GetNodesWithinRadius(StrideVector3 center, double radius, double resolution = 0)
         {
             return reader.GetNodesWithinRadius(center, radius, resolution);
         }
@@ -303,6 +320,254 @@ namespace Copc.Cache
             return reader.GetNodesAtResolution(resolution);
         }
 
+		/// <summary>
+		/// Updates the cache by decoding nodes directly into separated arrays (no CopcPoint allocation).
+		/// Optionally restrict which extra dimensions to include and optionally store separated-only in cache.
+		/// </summary>
+		public void UpdateSeparated(IEnumerable<Node> nodes, string[]? includeExtraDimensionNames = null, bool storeSeparatedOnly = false)
+		{
+			if (nodes == null) throw new ArgumentNullException(nameof(nodes));
+
+			// Determine which nodes actually need loading
+			nodesToLoadScratch.Clear();
+			foreach (var node in nodes)
+			{
+				if (!cache.Contains(node.Key))
+				{
+					nodesToLoadScratch.Add(node);
+				}
+			}
+
+			if (nodesToLoadScratch.Count == 0)
+				return;
+
+			// Step 1: Read compressed chunks sequentially
+			var compressed = compressedScratch;
+			compressed.Clear();
+			foreach (var node in nodesToLoadScratch)
+			{
+				try
+				{
+					if (node.PointCount == 0 || node.ByteSize == 0)
+						continue;
+
+					var data = reader.GetPointDataCompressed(node);
+					if (data != null && data.Length > 0)
+					{
+						compressed.Add((node, data));
+					}
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"Warning: Failed to read compressed data for node {node.Key}: {ex.Message}");
+				}
+			}
+
+			if (compressed.Count == 0)
+				return;
+
+			var header = reader.Config.LasHeader;
+			var extras = reader.Config.ExtraDimensions;
+			HashSet<string>? include = null;
+			if (includeExtraDimensionNames != null && includeExtraDimensionNames.Length > 0)
+				include = new HashSet<string>(includeExtraDimensionNames);
+
+			// Step 2: Decompress sequentially into separated arrays
+			for (int i = 0; i < compressed.Count; i++)
+			{
+				var item = compressed[i];
+				try
+				{
+					var separated = DecompressNodeToSeparated(item.node, item.data, header, extras, include);
+					if (storeSeparatedOnly)
+					{
+						cache.PutSeparatedOnly(item.node.Key, separated);
+					}
+					else
+					{
+						// If we also want CopcPoint[] for compatibility, build via existing path once
+						var points = LazDecompressor.DecompressChunk(
+							header.BasePointFormat,
+							header.PointDataRecordLength,
+							item.data,
+							item.node.PointCount,
+							header,
+							extras
+						);
+						cache.Put(item.node.Key, points); // Put() will attach separated automatically if configured
+					}
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"Warning: Failed to decompress (separated) node {item.node.Key}: {ex.Message}");
+				}
+			}
+		}
+
+		private static SeparatedNodeData DecompressNodeToSeparated(Node node, byte[] compressedData, LasHeader header, List<ExtraDimension>? extraDimensions, HashSet<string>? includeNames)
+		{
+			int pointFormat = header.BasePointFormat;
+			int pointSize = header.PointDataRecordLength;
+			int pointCount = node.PointCount;
+
+			var decompressor = new ChunkDecompressor();
+			decompressor.Open(pointFormat, pointSize, compressedData);
+
+			// Pre-allocate
+			var positions = new StrideVector4[pointCount];
+			var colors = new StrideVector4[pointCount];
+
+			Dictionary<string, float[]>? extraArrays = null;
+			List<ExtraDimension>? dimsOrdered = null;
+			bool includeExtras = extraDimensions != null && extraDimensions.Count > 0;
+			if (includeExtras)
+			{
+				dimsOrdered = new List<ExtraDimension>(extraDimensions!);
+				extraArrays = new Dictionary<string, float[]>(dimsOrdered.Count);
+				for (int d = 0; d < dimsOrdered.Count; d++)
+				{
+					var dim = dimsOrdered[d];
+					if (includeNames != null && includeNames.Count > 0 && !includeNames.Contains(dim.Name))
+						continue;
+					int comp = dim.GetComponentCount();
+					extraArrays[dim.Name] = new float[pointCount * comp];
+				}
+			}
+
+			int standardSize = GetStandardPointSize(pointFormat);
+
+			// Adaptive color divisor if format supports color
+			float colorDivisor = 255f;
+			bool hasColor = (pointFormat == 7 || pointFormat == 8);
+			if (hasColor)
+			{
+				int sampleCount = Math.Min(64, pointCount);
+				ushort maxComponent = 0;
+				for (int i = 0; i < sampleCount; i++)
+				{
+					var pd = decompressor.GetPoint();
+					var rgb = Rgb14.Unpack(pd, 30);
+					if (rgb.Red > maxComponent) maxComponent = rgb.Red;
+					if (rgb.Green > maxComponent) maxComponent = rgb.Green;
+					if (rgb.Blue > maxComponent) maxComponent = rgb.Blue;
+				}
+				colorDivisor = ChooseColorDivisor(maxComponent);
+
+				// Re-open to restart stream for full pass
+				decompressor.Close();
+				decompressor.Open(pointFormat, pointSize, compressedData);
+			}
+
+			for (int i = 0; i < pointCount; i++)
+			{
+				var pd = decompressor.GetPoint();
+
+				switch (pointFormat)
+				{
+					case 0:
+					{
+						var las = LasPoint10.Unpack(pd, 0);
+						positions[i] = new StrideVector4(
+							(float)(las.X * header.XScaleFactor + header.XOffset),
+							(float)(las.Y * header.YScaleFactor + header.YOffset),
+							(float)(las.Z * header.ZScaleFactor + header.ZOffset),
+							1.0f
+						);
+						colors[i] = new StrideVector4(1, 1, 1, 1);
+						break;
+					}
+					case 6:
+					{
+						var las = LasPoint14.Unpack(pd, 0);
+						positions[i] = new StrideVector4(
+							(float)(las.X * header.XScaleFactor + header.XOffset),
+							(float)(las.Y * header.YScaleFactor + header.YOffset),
+							(float)(las.Z * header.ZScaleFactor + header.ZOffset),
+							1.0f
+						);
+						colors[i] = new StrideVector4(1, 1, 1, 1);
+						break;
+					}
+					case 7:
+					{
+						var las = LasPoint14.Unpack(pd, 0);
+						var rgb = Rgb14.Unpack(pd, 30);
+						positions[i] = new StrideVector4(
+							(float)(las.X * header.XScaleFactor + header.XOffset),
+							(float)(las.Y * header.YScaleFactor + header.YOffset),
+							(float)(las.Z * header.ZScaleFactor + header.ZOffset),
+							1.0f
+						);
+						colors[i] = new StrideVector4(rgb.Red / colorDivisor, rgb.Green / colorDivisor, rgb.Blue / colorDivisor, 1.0f);
+						break;
+					}
+					case 8:
+					{
+						var las = LasPoint14.Unpack(pd, 0);
+						var rgb = Rgb14.Unpack(pd, 30);
+						positions[i] = new StrideVector4(
+							(float)(las.X * header.XScaleFactor + header.XOffset),
+							(float)(las.Y * header.YScaleFactor + header.YOffset),
+							(float)(las.Z * header.ZScaleFactor + header.ZOffset),
+							1.0f
+						);
+						colors[i] = new StrideVector4(rgb.Red / colorDivisor, rgb.Green / colorDivisor, rgb.Blue / colorDivisor, 1.0f);
+						break;
+					}
+					default:
+						throw new NotImplementedException($"Point format {pointFormat} decoding not implemented for separated path.");
+				}
+
+				if (includeExtras && extraArrays != null)
+				{
+					int offset = standardSize;
+					for (int d = 0; d < dimsOrdered!.Count; d++)
+					{
+						var dim = dimsOrdered[d];
+						int compSize = dim.GetDataSize();
+						int compCount = dim.GetComponentCount();
+						int totalSize = compSize * compCount;
+						if (extraArrays.TryGetValue(dim.Name, out var arr))
+						{
+							int writeIndex = i * compCount;
+							dim.ExtractAsFloat32Into(pd, offset, arr, writeIndex);
+						}
+						offset += totalSize;
+					}
+				}
+			}
+
+			decompressor.Close();
+			return new SeparatedNodeData
+			{
+				Positions = positions,
+				Colors = colors,
+				ExtraDimensionArrays = extraArrays
+			};
+		}
+
+		private static int GetStandardPointSize(int pointFormat)
+		{
+			return pointFormat switch
+			{
+				0 => 20,
+				1 => 28,
+				2 => 26,
+				3 => 34,
+				6 => 30,
+				7 => 36,
+				8 => 38,
+				_ => throw new NotImplementedException($"Point format {pointFormat} size not defined")
+			};
+		}
+
+		private static float ChooseColorDivisor(ushort maxComponent)
+		{
+			if (maxComponent <= 255) return 255f;
+			if (maxComponent <= 4095) return 4095f;
+			return 65535f;
+		}
+
         // Cached query methods - these combine node queries with point loading
 
         /// <summary>
@@ -311,7 +576,7 @@ namespace Copc.Cache
         /// <param name="box">The bounding box to query</param>
         /// <param name="resolution">Optional minimum resolution filter</param>
         /// <returns>Array of points within the box</returns>
-        public CopcPoint[] GetPointsInBox(Box box, double resolution = 0)
+        public CopcPoint[] GetPointsInBox(Copc.Geometry.Box box, double resolution = 0)
         {
             var nodes = reader.GetNodesIntersectBox(box, resolution);
             return GetPointsFromNodes(nodes);
@@ -323,7 +588,7 @@ namespace Copc.Cache
         /// <param name="frustum">The frustum to query</param>
         /// <param name="resolution">Optional minimum resolution filter</param>
         /// <returns>Array of points within the frustum</returns>
-        public CopcPoint[] GetPointsInFrustum(Frustum frustum, double resolution = 0)
+        public CopcPoint[] GetPointsInFrustum(StrideBoundingFrustum frustum, double resolution = 0)
         {
             var nodes = reader.GetNodesIntersectFrustum(frustum, resolution);
             return GetPointsFromNodes(nodes);
@@ -359,7 +624,7 @@ namespace Copc.Cache
         /// <param name="sphere">The sphere to query</param>
         /// <param name="resolution">Optional minimum resolution filter</param>
         /// <returns>Array of points within the sphere</returns>
-        public CopcPoint[] GetPointsInRadius(Sphere sphere, double resolution = 0)
+        public CopcPoint[] GetPointsInRadius(StrideBoundingSphere sphere, double resolution = 0)
         {
             var nodes = reader.GetNodesWithinRadius(sphere, resolution);
             return GetPointsFromNodes(nodes);
@@ -387,7 +652,7 @@ namespace Copc.Cache
         /// <param name="radius">Radius of the sphere</param>
         /// <param name="resolution">Optional minimum resolution filter</param>
         /// <returns>Array of points within the sphere</returns>
-        public CopcPoint[] GetPointsInRadius(Vector3 center, double radius, double resolution = 0)
+        public CopcPoint[] GetPointsInRadius(StrideVector3 center, double radius, double resolution = 0)
         {
             var nodes = reader.GetNodesWithinRadius(center, radius, resolution);
             return GetPointsFromNodes(nodes);
@@ -425,7 +690,19 @@ namespace Copc.Cache
         /// <returns>All cached points with separate arrays (Positions, Colors, Intensities, ExtraDimensionArrays, etc.)</returns>
         public StrideCacheData GetCacheDataSeparated()
         {
-            return cache.GetOrBuildStrideCacheDataSeparated(reader.Config.ExtraDimensions);
+			return cache.GetOrBuildStrideCacheDataSeparated(reader.Config.ExtraDimensions);
+		}
+
+		/// <summary>
+		/// Gets all currently cached data with separate arrays, including only the specified extra dimensions (if provided).
+		/// Pass null or empty to include all extra dimensions.
+		/// </summary>
+		public StrideCacheData GetCacheDataSeparated(string[]? includeExtraDimensionNames)
+		{
+			HashSet<string>? include = null;
+			if (includeExtraDimensionNames != null && includeExtraDimensionNames.Length > 0)
+				include = new HashSet<string>(includeExtraDimensionNames);
+			return cache.GetOrBuildStrideCacheDataSeparated(reader.Config.ExtraDimensions, include);
         }
 
         /// <summary>
@@ -435,21 +712,19 @@ namespace Copc.Cache
         /// <param name="nodes">Nodes whose cached points should be converted</param>
         public StrideCacheData GetCacheDataSeparatedFromNodes(IEnumerable<Node> nodes)
         {
-            if (nodes == null) throw new ArgumentNullException(nameof(nodes));
+			return cache.BuildSeparatedFromNodes(nodes, reader.Config.ExtraDimensions, null);
+		}
 
-            var allCopcPoints = new List<CopcPoint>();
-            foreach (var node in nodes)
-            {
-                if (cache.TryGetPoints(node.Key, out var pts) && pts != null && pts.Length > 0)
-                {
-                    allCopcPoints.AddRange(pts);
-                }
-            }
-
-            var stridePoints = StrideCacheExtensions.ConvertToStridePoints(allCopcPoints.ToArray(), reader.Config.ExtraDimensions);
-            var data = new StrideCacheData { Points = stridePoints };
-            data.GenerateSeparateArrays();
-            return data;
+		/// <summary>
+		/// Gets separated data only for the specified nodes, including only the specified extra dimensions (if provided).
+		/// Does not trigger loading; nodes must be pre-warmed via Update().
+		/// </summary>
+		public StrideCacheData GetCacheDataSeparatedFromNodes(IEnumerable<Node> nodes, string[]? includeExtraDimensionNames)
+		{
+			HashSet<string>? include = null;
+			if (includeExtraDimensionNames != null && includeExtraDimensionNames.Length > 0)
+				include = new HashSet<string>(includeExtraDimensionNames);
+			return cache.BuildSeparatedFromNodes(nodes, reader.Config.ExtraDimensions, include);
         }
 
         /// <summary>
@@ -467,7 +742,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets points in a box and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInBox(Box box, double resolution = 0)
+        public StridePoint[] GetStridePointsInBox(Copc.Geometry.Box box, double resolution = 0)
         {
             var copcPoints = GetPointsInBox(box, resolution);
             return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
@@ -476,7 +751,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets points in a frustum and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInFrustum(Frustum frustum, double resolution = 0)
+        public StridePoint[] GetStridePointsInFrustum(StrideBoundingFrustum frustum, double resolution = 0)
         {
             var copcPoints = GetPointsInFrustum(frustum, resolution);
             return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);
@@ -494,7 +769,7 @@ namespace Copc.Cache
         /// <summary>
         /// Gets points in a radius and converts to Stride format.
         /// </summary>
-        public StridePoint[] GetStridePointsInRadius(Sphere sphere, double resolution = 0)
+        public StridePoint[] GetStridePointsInRadius(StrideBoundingSphere sphere, double resolution = 0)
         {
             var copcPoints = GetPointsInRadius(sphere, resolution);
             return StrideCacheExtensions.ConvertToStridePoints(copcPoints, reader.Config.ExtraDimensions);

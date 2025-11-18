@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
-using Copc.Geometry;
 using Copc.IO;
+using Stride.Core.Mathematics;
 
 namespace Copc.Examples
 {
@@ -121,7 +121,7 @@ namespace Copc.Examples
             // Create sphere once and reuse it
             Vector3 center = new Vector3(500, 500, 50);
             double radius = 100;
-            var sphere = new Sphere(center, radius);
+            var sphere = new BoundingSphere(center, (float)radius);
 
             Console.WriteLine($"Sphere: {sphere}");
 
@@ -244,9 +244,9 @@ namespace Copc.Examples
             // Get the bounds of the entire point cloud
             var header = reader.Config.LasHeader;
             Vector3 cloudCenter = new Vector3(
-                (header.MaxX + header.MinX) / 2,
-                (header.MaxY + header.MinY) / 2,
-                (header.MaxZ + header.MinZ) / 2
+                (float)((header.MaxX + header.MinX) / 2),
+                (float)((header.MaxY + header.MinY) / 2),
+                (float)((header.MaxZ + header.MinZ) / 2)
             );
 
             // Analyze density at different radii
@@ -277,7 +277,7 @@ namespace Copc.Examples
 
             Vector3 center = new Vector3(500, 500, 50);
             double radius = 100;
-            var sphere = new Sphere(center, radius);
+            var sphere = new BoundingSphere(center, (float)radius);
 
             var allNodes = reader.GetNodesWithinRadius(sphere);
             
@@ -288,13 +288,8 @@ namespace Copc.Examples
             {
                 var bounds = node.Key.GetBounds(reader.Config.LasHeader, reader.Config.CopcInfo);
                 
-                if (sphere.Contains(bounds))
-                {
-                    // Node bounding box is completely inside the sphere
-                    fullyInside++;
-                    Console.WriteLine($"Node {node.Key}: FULLY inside (all {node.PointCount} points guaranteed in radius)");
-                }
-                else if (sphere.IntersectsBox(bounds))
+                var sb = bounds.ToStride();
+                if (sphere.Intersects(ref sb))
                 {
                     // Node bounding box partially intersects the sphere
                     partiallyInside++;
@@ -324,7 +319,7 @@ namespace Copc.Examples
             long radiusPoints = radiusNodes.Sum(n => (long)n.PointCount);
 
             // Equivalent box query (circumscribing box)
-            var box = new Box(
+            var box = new Copc.Geometry.Box(
                 center.X - radius, center.Y - radius, center.Z - radius,
                 center.X + radius, center.Y + radius, center.Z + radius
             );

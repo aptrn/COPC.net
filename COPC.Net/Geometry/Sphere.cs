@@ -1,4 +1,7 @@
 using System;
+using StrideBoundingBox = Stride.Core.Mathematics.BoundingBox;
+using StrideBoundingSphere = Stride.Core.Mathematics.BoundingSphere;
+using StrideVector3 = Stride.Core.Mathematics.Vector3;
 
 namespace Copc.Geometry
 {
@@ -67,19 +70,10 @@ namespace Copc.Geometry
         /// </summary>
         public bool IntersectsBox(Box box)
         {
-            // Find the closest point on the box to the sphere's center
-            double closestX = Math.Clamp(Center.X, box.MinX, box.MaxX);
-            double closestY = Math.Clamp(Center.Y, box.MinY, box.MaxY);
-            double closestZ = Math.Clamp(Center.Z, box.MinZ, box.MaxZ);
-
-            // Calculate squared distance from sphere center to closest point
-            double dx = Center.X - closestX;
-            double dy = Center.Y - closestY;
-            double dz = Center.Z - closestZ;
-            double distanceSquared = dx * dx + dy * dy + dz * dz;
-
-            // Intersection occurs if distance is less than or equal to radius
-            return distanceSquared <= Radius * Radius;
+            // Prefer Stride implementation
+            StrideBoundingSphere s = ToStride();
+            StrideBoundingBox b = box.ToStride();
+            return s.Intersects(b);
         }
 
         /// <summary>
@@ -152,6 +146,24 @@ namespace Copc.Geometry
         public override string ToString()
         {
             return $"Sphere[Center={Center}, Radius={Radius}]";
+        }
+
+        // Stride interop
+
+        /// <summary>
+        /// Converts this sphere to a Stride BoundingSphere.
+        /// </summary>
+        public StrideBoundingSphere ToStride()
+        {
+            return new StrideBoundingSphere(new StrideVector3((float)Center.X, (float)Center.Y, (float)Center.Z), (float)Radius);
+        }
+
+        /// <summary>
+        /// Creates a Sphere from a Stride BoundingSphere.
+        /// </summary>
+        public static Sphere FromStride(StrideBoundingSphere s)
+        {
+            return new Sphere(new Vector3(s.Center.X, s.Center.Y, s.Center.Z), s.Radius);
         }
     }
 }

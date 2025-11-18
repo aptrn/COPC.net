@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Copc.Hierarchy;
 using Copc.IO;
+using System.Threading.Tasks;
+using StrideVector4 = Stride.Core.Mathematics.Vector4;
 
 namespace Copc.Cache
 {
@@ -12,9 +14,11 @@ namespace Copc.Cache
     {
         public VoxelKey Key { get; set; }
         public CopcPoint[] Points { get; set; }
-        public long MemorySize { get; set; }
+		public long MemorySize { get; set; }
         public DateTime LastAccessTime { get; set; }
         public long AccessCount { get; set; }
+		public SeparatedNodeData? Separated { get; set; }
+		public long SeparatedMemorySize { get; set; }
 
         public CachedNodeData(VoxelKey key, CopcPoint[] points, long memorySize)
         {
@@ -23,6 +27,8 @@ namespace Copc.Cache
             MemorySize = memorySize;
             LastAccessTime = DateTime.UtcNow;
             AccessCount = 0;
+			Separated = null;
+			SeparatedMemorySize = 0;
         }
 
         public void UpdateAccessTime()
@@ -31,6 +37,17 @@ namespace Copc.Cache
             AccessCount++;
         }
     }
+
+	/// <summary>
+	/// Per-node separated arrays ready for GPU upload.
+	/// </summary>
+	public class SeparatedNodeData
+	{
+		public StrideVector4[] Positions { get; set; } = Array.Empty<StrideVector4>();
+		public StrideVector4[] Colors { get; set; } = Array.Empty<StrideVector4>();
+		public Dictionary<string, float[]>? ExtraDimensionArrays { get; set; }
+		public int Count => Positions?.Length ?? 0;
+	}
 
     /// <summary>
     /// Smart cache for COPC point cloud data with automatic memory management.
@@ -41,6 +58,7 @@ namespace Copc.Cache
         // Configuration
         private readonly long maxMemoryBytes;
         private readonly int estimatedBytesPerPoint;
+		private List<ExtraDimension>? extraDimensionsForSeparated;
 
         // Cache storage
         private readonly Dictionary<VoxelKey, LinkedListNode<CachedNodeData>> cache;
@@ -127,6 +145,7 @@ namespace Copc.Cache
 
 			cachedStrideData = null;
 			strideCacheDirty = true;
+			extraDimensionsForSeparated = null;
         }
 
         /// <summary>
@@ -138,6 +157,15 @@ namespace Copc.Cache
         {
             return new PointCache((long)maxMemoryMB * 1024 * 1024, estimatedBytesPerPoint);
         }
+
+		/// <summary>
+		/// Sets the extra dimension definitions used to precompute separated arrays.
+		/// If set, the cache will build per-node separated arrays on Put() for reuse.
+		/// </summary>
+		public void SetExtraDimensions(List<ExtraDimension>? extraDimensions)
+		{
+			extraDimensionsForSeparated = extraDimensions;
+		}
 
         /// <summary>
         /// Attempts to get cached point data for a node.
@@ -183,27 +211,104 @@ namespace Copc.Cache
             // Remove existing entry if present
             if (cache.TryGetValue(key, out var existingNode))
             {
-                currentMemoryBytes -= existingNode.Value.MemorySize;
+				currentMemoryBytes -= (existingNode.Value.MemorySize + existingNode.Value.SeparatedMemorySize);
                 lruList.Remove(existingNode);
                 cache.Remove(key);
             }
 
             // Evict entries until we have enough space
-            while (currentMemoryBytes + memorySize > maxMemoryBytes && lruList.Count > 0)
+			while (currentMemoryBytes + memorySize > maxMemoryBytes && lruList.Count > 0)
             {
                 EvictLeastRecentlyUsed();
             }
 
             // Add new entry
-            var cachedData = new CachedNodeData(key, points, memorySize);
+			var cachedData = new CachedNodeData(key, points, memorySize);
+
+			// Optionally precompute separated arrays for this node (once), accounting for memory
+			if (extraDimensionsForSeparated != null && points.Length > 0)
+			{
+				// Build separated arrays
+				var sepData = StrideCacheExtensions.BuildSeparatedFromCopcPoints(points, extraDimensionsForSeparated, null);
+				var sepMem = EstimateSeparatedMemorySize(sepData);
+
+				// Ensure capacity for both entries (points + separated for this node)
+				while (currentMemoryBytes + memorySize + sepMem > maxMemoryBytes && lruList.Count > 0)
+				{
+					EvictLeastRecentlyUsed();
+				}
+
+				// Only attach if fits
+				if (currentMemoryBytes + memorySize + sepMem <= maxMemoryBytes)
+				{
+					cachedData.Separated = new SeparatedNodeData
+					{
+						Positions = sepData.Positions ?? Array.Empty<StrideVector4>(),
+						Colors = sepData.Colors ?? Array.Empty<StrideVector4>(),
+						ExtraDimensionArrays = sepData.ExtraDimensionArrays
+					};
+					cachedData.SeparatedMemorySize = sepMem;
+				}
+			}
+
             var newNode = lruList.AddFirst(cachedData);
             cache[key] = newNode;
-            currentMemoryBytes += memorySize;
+			currentMemoryBytes += memorySize + cachedData.SeparatedMemorySize;
 
 			// Mark stride cache dirty since content changed
 			strideCacheDirty = true;
         }
 
+		/// <summary>
+		/// Adds or updates separated-only data in the cache (no CopcPoint[] stored).
+		/// Use this when the application never needs CopcPoint objects.
+		/// </summary>
+		public void PutSeparatedOnly(VoxelKey key, SeparatedNodeData separated)
+		{
+			if (separated == null) return;
+
+			// Remove existing entry if present
+			if (cache.TryGetValue(key, out var existingNode))
+			{
+				currentMemoryBytes -= (existingNode.Value.MemorySize + existingNode.Value.SeparatedMemorySize);
+				lruList.Remove(existingNode);
+				cache.Remove(key);
+			}
+
+			// Compute memory size for separated
+			var tempStride = new StrideCacheData
+			{
+				Positions = separated.Positions,
+				Colors = separated.Colors,
+				ExtraDimensionArrays = separated.ExtraDimensionArrays
+			};
+			long sepMem = EstimateSeparatedMemorySize(tempStride);
+
+			// Evict until fits
+			while (currentMemoryBytes + sepMem > maxMemoryBytes && lruList.Count > 0)
+			{
+				EvictLeastRecentlyUsed();
+			}
+
+			if (sepMem > maxMemoryBytes)
+			{
+				// Too large to fit even in empty cache
+				return;
+			}
+
+			var nodeData = new CachedNodeData(key, Array.Empty<CopcPoint>(), 0)
+			{
+				Separated = separated,
+				SeparatedMemorySize = sepMem
+			};
+
+			var newNode = lruList.AddFirst(nodeData);
+			cache[key] = newNode;
+			currentMemoryBytes += sepMem;
+
+			// Mark stride cache dirty since content changed
+			strideCacheDirty = true;
+		}
         /// <summary>
         /// Gets points for a node, using cache if available or loading from reader if not.
         /// This is a convenience method that combines cache lookup and loading.
@@ -228,6 +333,10 @@ namespace Copc.Cache
             return points;
         }
 
+
+        private List<CopcPoint> allPoints = new List<CopcPoint>();
+        private List<Node> nodesToLoadScratch = new List<Node>();
+        private List<StridePoint> allStridePointsScratch = new List<StridePoint>();
         /// <summary>
         /// Gets points for multiple nodes, using cache when possible and loading only uncached nodes.
         /// This is more efficient than loading nodes one at a time.
@@ -237,8 +346,8 @@ namespace Copc.Cache
         /// <returns>Array of all points from the nodes</returns>
         public CopcPoint[] GetOrLoadPointsFromNodes(IEnumerable<Node> nodes, CopcReader reader)
         {
-            var allPoints = new List<CopcPoint>();
-            var nodesToLoad = new List<Node>();
+            allPoints.Clear();
+            nodesToLoadScratch.Clear();
 
             // First pass: check cache and collect nodes that need loading
             foreach (var node in nodes)
@@ -249,12 +358,12 @@ namespace Copc.Cache
                 }
                 else
                 {
-                    nodesToLoad.Add(node);
+                    nodesToLoadScratch.Add(node);
                 }
             }
 
             // Second pass: load uncached nodes
-            foreach (var node in nodesToLoad)
+            foreach (var node in nodesToLoadScratch)
             {
                 try
                 {
@@ -365,7 +474,7 @@ namespace Copc.Cache
 
             cache.Remove(lruData.Key);
             lruList.RemoveLast();
-            currentMemoryBytes -= lruData.MemorySize;
+			currentMemoryBytes -= (lruData.MemorySize + lruData.SeparatedMemorySize);
             totalEvictions++;
 			// Content changed
 			strideCacheDirty = true;
@@ -377,29 +486,294 @@ namespace Copc.Cache
 		/// </summary>
 		public StrideCacheData GetOrBuildStrideCacheDataSeparated(List<ExtraDimension>? extraDimensions = null)
 		{
+			return GetOrBuildStrideCacheDataSeparated(extraDimensions, null);
+		}
+
+		/// <summary>
+		/// Builds or returns cached Stride-format separated arrays for all cached points, optionally including only a subset of extra dimensions.
+		/// Rebuilds only when cache content changes (on Put/Remove/Clear/Evict).
+		/// </summary>
+		public StrideCacheData GetOrBuildStrideCacheDataSeparated(List<ExtraDimension>? extraDimensions, HashSet<string>? includeExtraDimensionNames)
+		{
 			if (cachedStrideData != null && !strideCacheDirty)
 			{
 				return cachedStrideData;
 			}
 
-			// Convert all cached points to Stride and generate separated arrays
+			// Gather cached arrays and compute total size
 			var cachedNodes = GetCachedNodes();
-			var allStridePoints = new List<StridePoint>();
-			foreach (var nodeInfo in cachedNodes)
+			var nodePointArrays = new List<CopcPoint[]>(cachedNodes.Count);
+			var nodeSeparated = new List<SeparatedNodeData?>(cachedNodes.Count);
+			var nodeOffsets = new int[cachedNodes.Count];
+			int totalPoints = 0;
+
+			for (int i = 0; i < cachedNodes.Count; i++)
 			{
-				if (TryGetPoints(nodeInfo.Key, out var copcPoints) && copcPoints != null)
+				var nodeInfo = cachedNodes[i];
+				if (TryGetPoints(nodeInfo.Key, out var copcPoints) && copcPoints != null && copcPoints.Length > 0)
 				{
-					var stridePoints = StrideCacheExtensions.ConvertToStridePoints(copcPoints, extraDimensions);
-					allStridePoints.AddRange(stridePoints);
+					nodeOffsets[i] = totalPoints;
+					nodePointArrays.Add(copcPoints);
+					// Try separated (if prepared at put-time)
+					if (cache.TryGetValue(nodeInfo.Key, out var listNode) && listNode != null)
+					{
+						nodeSeparated.Add(listNode.Value.Separated);
+					}
+					else
+					{
+						nodeSeparated.Add(null);
+					}
+					totalPoints += copcPoints.Length;
+				}
+				else
+				{
+					nodeOffsets[i] = totalPoints;
+					nodePointArrays.Add(Array.Empty<CopcPoint>());
+					nodeSeparated.Add(null);
 				}
 			}
 
-			var data = new StrideCacheData { Points = allStridePoints.ToArray() };
-			data.GenerateSeparateArrays();
+			// Allocate destination arrays
+			var positions = new Stride.Core.Mathematics.Vector4[totalPoints];
+			var colors = new Stride.Core.Mathematics.Vector4[totalPoints];
+
+			Dictionary<string, float[]>? extraArrays = null;
+			List<ExtraDimension>? dimsOrdered = null;
+			bool includeExtras = extraDimensions != null && extraDimensions.Count > 0;
+			if (includeExtras)
+			{
+				dimsOrdered = new List<ExtraDimension>(extraDimensions!);
+				extraArrays = new Dictionary<string, float[]>(dimsOrdered.Count);
+				for (int d = 0; d < dimsOrdered.Count; d++)
+				{
+					var dim = dimsOrdered[d];
+					if (includeExtraDimensionNames != null && includeExtraDimensionNames.Count > 0 &&
+						!includeExtraDimensionNames.Contains(dim.Name))
+					{
+						continue;
+					}
+					int comp = dim.GetComponentCount();
+					extraArrays[dim.Name] = new float[totalPoints * comp];
+				}
+			}
+
+			// Fill arrays per node; prefer block copies when separated data available
+			int nodeCount = nodePointArrays.Count;
+			Parallel.For(0, nodeCount, i =>
+			{
+				var pts = nodePointArrays[i];
+				if (pts == null || pts.Length == 0) return;
+				int start = nodeOffsets[i];
+				var sep = nodeSeparated[i];
+
+				if (sep != null && sep.Positions != null && sep.Positions.Length == pts.Length)
+				{
+					// Fast path: block copy precomputed arrays
+					Array.Copy(sep.Positions, 0, positions, start, pts.Length);
+					Array.Copy(sep.Colors, 0, colors, start, pts.Length);
+
+					if (includeExtras && dimsOrdered != null && extraArrays != null && sep.ExtraDimensionArrays != null)
+					{
+						foreach (var dim in dimsOrdered)
+						{
+							if (includeExtraDimensionNames != null && includeExtraDimensionNames.Count > 0 &&
+								!includeExtraDimensionNames.Contains(dim.Name))
+							{
+								continue;
+							}
+							if (!sep.ExtraDimensionArrays.TryGetValue(dim.Name, out var nodeArr))
+								continue;
+							if (!extraArrays.TryGetValue(dim.Name, out var dst)) continue;
+							int comp = dim.GetComponentCount();
+							Buffer.BlockCopy(nodeArr, 0, dst, start * comp * sizeof(float), nodeArr.Length * sizeof(float));
+						}
+					}
+
+					return;
+				}
+
+				for (int k = 0; k < pts.Length; k++)
+				{
+					int dstIndex = start + k;
+					var p = pts[k];
+
+					positions[dstIndex] = new Stride.Core.Mathematics.Vector4((float)p.X, (float)p.Y, (float)p.Z, 1.0f);
+
+					float r = p.Red ?? 1.0f;
+					float g = p.Green ?? 1.0f;
+					float b = p.Blue ?? 1.0f;
+					colors[dstIndex] = new Stride.Core.Mathematics.Vector4(r, g, b, 1.0f);
+
+					if (includeExtras && p.ExtraBytes != null && p.ExtraBytes.Length > 0 && dimsOrdered != null && extraArrays != null)
+					{
+						int offset = 0;
+						for (int d = 0; d < dimsOrdered.Count; d++)
+						{
+							var dim = dimsOrdered[d];
+							int compSize = dim.GetDataSize();
+							int compCount = dim.GetComponentCount();
+							int totalSize = compSize * compCount;
+
+							if (extraArrays.TryGetValue(dim.Name, out var arr))
+							{
+								int writeIndex = dstIndex * compCount;
+								dim.ExtractAsFloat32Into(p.ExtraBytes, offset, arr, writeIndex);
+							}
+							offset += totalSize;
+						}
+					}
+				}
+			});
+
+			var data = new StrideCacheData
+			{
+				Positions = positions,
+				Colors = colors,
+				ExtraDimensionArrays = extraArrays
+			};
 
 			cachedStrideData = data;
 			strideCacheDirty = false;
 			return data;
+		}
+
+		/// <summary>
+		/// Builds separated arrays only for the specified nodes using cached points.
+		/// Nodes must be pre-warmed; this does not trigger loading.
+		/// includeExtraDimensionNames can be used to restrict which extra dimensions are extracted.
+		/// </summary>
+		public StrideCacheData BuildSeparatedFromNodes(IEnumerable<Node> nodes, List<ExtraDimension>? extraDimensions, HashSet<string>? includeExtraDimensionNames = null)
+		{
+			if (nodes == null) throw new ArgumentNullException(nameof(nodes));
+
+			// Collect arrays per node and compute prefix offsets
+			var nodeList = new List<Node>(nodes);
+			var nodePointArrays = new List<CopcPoint[]>(nodeList.Count);
+			var nodeSeparated = new List<SeparatedNodeData?>(nodeList.Count);
+			var nodeOffsets = new int[nodeList.Count];
+			int totalPoints = 0;
+
+			for (int i = 0; i < nodeList.Count; i++)
+			{
+				var node = nodeList[i];
+				if (TryGetPoints(node.Key, out var pts) && pts != null && pts.Length > 0)
+				{
+					nodeOffsets[i] = totalPoints;
+					nodePointArrays.Add(pts);
+					if (cache.TryGetValue(node.Key, out var listNode) && listNode != null)
+					{
+						nodeSeparated.Add(listNode.Value.Separated);
+					}
+					else
+					{
+						nodeSeparated.Add(null);
+					}
+					totalPoints += pts.Length;
+				}
+				else
+				{
+					nodeOffsets[i] = totalPoints;
+					nodePointArrays.Add(Array.Empty<CopcPoint>());
+					nodeSeparated.Add(null);
+				}
+			}
+
+			var positions = new Stride.Core.Mathematics.Vector4[totalPoints];
+			var colors = new Stride.Core.Mathematics.Vector4[totalPoints];
+
+			Dictionary<string, float[]>? extraArrays = null;
+			List<ExtraDimension>? dimsOrdered = null;
+			bool includeExtras = extraDimensions != null && extraDimensions.Count > 0;
+			if (includeExtras)
+			{
+				dimsOrdered = new List<ExtraDimension>(extraDimensions!);
+				extraArrays = new Dictionary<string, float[]>(dimsOrdered.Count);
+				for (int d = 0; d < dimsOrdered.Count; d++)
+				{
+					var dim = dimsOrdered[d];
+					if (includeExtraDimensionNames != null && includeExtraDimensionNames.Count > 0 &&
+						!includeExtraDimensionNames.Contains(dim.Name))
+					{
+						continue;
+					}
+					int comp = dim.GetComponentCount();
+					extraArrays[dim.Name] = new float[totalPoints * comp];
+				}
+			}
+
+			int nodeCount = nodePointArrays.Count;
+			Parallel.For(0, nodeCount, i =>
+			{
+				var pts = nodePointArrays[i];
+				if (pts == null || pts.Length == 0) return;
+				int start = nodeOffsets[i];
+				var sep = nodeSeparated[i];
+
+				if (sep != null && sep.Positions != null && sep.Positions.Length == pts.Length)
+				{
+					// Fast path: block copy the precomputed arrays
+					Array.Copy(sep.Positions, 0, positions, start, pts.Length);
+					Array.Copy(sep.Colors, 0, colors, start, pts.Length);
+
+					if (includeExtras && dimsOrdered != null && extraArrays != null && sep.ExtraDimensionArrays != null)
+					{
+						foreach (var dim in dimsOrdered)
+						{
+							if (includeExtraDimensionNames != null && includeExtraDimensionNames.Count > 0 &&
+								!includeExtraDimensionNames.Contains(dim.Name))
+							{
+								continue;
+							}
+							if (!sep.ExtraDimensionArrays.TryGetValue(dim.Name, out var nodeArr))
+								continue;
+							if (!extraArrays.TryGetValue(dim.Name, out var dst)) continue;
+							int comp = dim.GetComponentCount();
+							Buffer.BlockCopy(nodeArr, 0, dst, start * comp * sizeof(float), nodeArr.Length * sizeof(float));
+						}
+					}
+
+					return;
+				}
+
+				for (int k = 0; k < pts.Length; k++)
+				{
+					int dstIndex = start + k;
+					var p = pts[k];
+
+					positions[dstIndex] = new Stride.Core.Mathematics.Vector4((float)p.X, (float)p.Y, (float)p.Z, 1.0f);
+
+					float r = p.Red ?? 1.0f;
+					float g = p.Green ?? 1.0f;
+					float b = p.Blue ?? 1.0f;
+					colors[dstIndex] = new Stride.Core.Mathematics.Vector4(r, g, b, 1.0f);
+
+					if (includeExtras && p.ExtraBytes != null && p.ExtraBytes.Length > 0 && dimsOrdered != null && extraArrays != null)
+					{
+						int offset = 0;
+						for (int d = 0; d < dimsOrdered.Count; d++)
+						{
+							var dim = dimsOrdered[d];
+							int compSize = dim.GetDataSize();
+							int compCount = dim.GetComponentCount();
+							int totalSize = compSize * compCount;
+
+							if (extraArrays.TryGetValue(dim.Name, out var arr))
+							{
+								int writeIndex = dstIndex * compCount;
+								dim.ExtractAsFloat32Into(p.ExtraBytes, offset, arr, writeIndex);
+							}
+							offset += totalSize;
+						}
+					}
+				}
+			});
+
+			return new StrideCacheData
+			{
+				Positions = positions,
+				Colors = colors,
+				ExtraDimensionArrays = extraArrays
+			};
 		}
 
         /// <summary>
@@ -420,6 +794,24 @@ namespace Copc.Cache
             long pointMemory = points.Length * estimatedBytesPerPoint;
             return arrayOverhead + pointMemory;
         }
+
+		/// <summary>
+		/// Estimates memory size of separated arrays payload.
+		/// </summary>
+		private long EstimateSeparatedMemorySize(StrideCacheData data)
+		{
+			long size = 0;
+			if (data.Positions != null) size += 24 + (long)data.Positions.Length * sizeof(float) * 4;
+			if (data.Colors != null) size += 24 + (long)data.Colors.Length * sizeof(float) * 4;
+			if (data.ExtraDimensionArrays != null)
+			{
+				foreach (var kvp in data.ExtraDimensionArrays)
+				{
+					size += 24 + (long)kvp.Value.Length * sizeof(float);
+				}
+			}
+			return size;
+		}
     }
 
     /// <summary>

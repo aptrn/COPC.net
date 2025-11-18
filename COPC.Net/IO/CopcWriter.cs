@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using Copc.Geometry;
 using Copc.Hierarchy;
 using Copc.Utils;
 

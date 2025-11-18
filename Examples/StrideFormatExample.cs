@@ -1,7 +1,8 @@
 using System;
 using System.Linq;
 using Copc.Cache;
-using CopcVector3 = Copc.Geometry.Vector3;
+using CopcBox = Copc.Geometry.Box;
+using CopcVec3 = Copc.Geometry.Vector3;
 using StrideVector3 = Stride.Core.Mathematics.Vector3;
 using StrideVector4 = Stride.Core.Mathematics.Vector4;
 using Stride.Core.Mathematics;
@@ -46,10 +47,9 @@ namespace Copc.Examples
             double centerZ = (header.MinZ + header.MaxZ) / 2;
             double size = (header.MaxX - header.MinX) * 0.2; // 20% of total
 
-            var box = Copc.Geometry.Box.FromCenterAndHalfSize(
-                new CopcVector3(centerX, centerY, centerZ),
-                size
-            );
+            var center = new StrideVector3((float)centerX, (float)centerY, (float)centerZ);
+            var half = (float)size;
+            var box = new CopcBox(centerX - half, centerY - half, centerZ - half, centerX + half, centerY + half, centerZ + half);
 
             Console.WriteLine("Querying central region to populate cache...");
             var points = cachedReader.GetPointsInBox(box);

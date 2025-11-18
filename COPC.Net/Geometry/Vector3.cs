@@ -1,4 +1,5 @@
 using System;
+using StrideVector3 = Stride.Core.Mathematics.Vector3;
 
 namespace Copc.Geometry
 {
@@ -92,6 +93,34 @@ namespace Copc.Geometry
         public override string ToString()
         {
             return $"({X}, {Y}, {Z})";
+        }
+
+        // Stride interop
+
+        /// <summary>
+        /// Creates a Vector3 from a Stride Vector3.
+        /// </summary>
+        public Vector3(StrideVector3 v)
+        {
+            X = v.X;
+            Y = v.Y;
+            Z = v.Z;
+        }
+
+        /// <summary>
+        /// Implicit conversion to Stride Vector3 (casts to float).
+        /// </summary>
+        public static implicit operator StrideVector3(Vector3 v)
+        {
+            return new StrideVector3((float)v.X, (float)v.Y, (float)v.Z);
+        }
+
+        /// <summary>
+        /// Implicit conversion from Stride Vector3.
+        /// </summary>
+        public static implicit operator Vector3(StrideVector3 v)
+        {
+            return new Vector3(v);
         }
     }
 }

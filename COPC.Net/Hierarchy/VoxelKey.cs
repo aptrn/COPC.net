@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using Copc.Geometry;
+using Stride.Core.Mathematics;
 
 namespace Copc.Hierarchy
 {
@@ -148,21 +148,23 @@ namespace Copc.Hierarchy
         /// <summary>
         /// Calculates the bounding box for this voxel given header information.
         /// </summary>
-        public Box GetBounds(LasHeader header, CopcInfo copcInfo)
+        public Copc.Geometry.Box GetBounds(LasHeader header, CopcInfo copcInfo)
         {
             double span = GetSpanAtDepth(D, header);
             
             // Calculate the voxel bounds based on the COPC cube
-            var cube = Box.FromCenterAndHalfSize(
-                new Vector3(copcInfo.CenterX, copcInfo.CenterY, copcInfo.CenterZ),
-                copcInfo.HalfSize
+            double cubeMinX = copcInfo.CenterX - copcInfo.HalfSize;
+            double cubeMinY = copcInfo.CenterY - copcInfo.HalfSize;
+            double cubeMinZ = copcInfo.CenterZ - copcInfo.HalfSize;
+
+            double minX = cubeMinX + X * span;
+            double minY = cubeMinY + Y * span;
+            double minZ = cubeMinZ + Z * span;
+
+            return new Copc.Geometry.Box(
+                minX, minY, minZ,
+                minX + span, minY + span, minZ + span
             );
-
-            double minX = cube.MinX + X * span;
-            double minY = cube.MinY + Y * span;
-            double minZ = cube.MinZ + Z * span;
-
-            return new Box(minX, minY, minZ, minX + span, minY + span, minZ + span);
         }
 
         /// <summary>

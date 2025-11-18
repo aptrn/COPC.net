@@ -2,8 +2,9 @@ using System;
 using System.Diagnostics;
 using System.Linq;
 using Copc.Cache;
-using Copc.Geometry;
+using Stride.Core.Mathematics;
 using Copc.IO;
+using CopcBox = Copc.Geometry.Box;
 
 namespace Copc.Examples
 {
@@ -100,10 +101,9 @@ namespace Copc.Examples
             double centerZ = (header.MinZ + header.MaxZ) / 2;
             double size = (header.MaxX - header.MinX) * 0.1; // 10% of total size
 
-            var box = Box.FromCenterAndHalfSize(
-                new Vector3(centerX, centerY, centerZ),
-                size
-            );
+            var center = new Vector3((float)centerX, (float)centerY, (float)centerZ);
+            var half = (float)size;
+            var box = new CopcBox(centerX - half, centerY - half, centerZ - half, centerX + half, centerY + half, centerZ + half);
 
             Console.WriteLine($"Querying box around center: size={size:F2}\n");
 

@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using Copc.IO;
-using Copc.Geometry;
+using Stride.Core.Mathematics;
 using Copc.Hierarchy;
 
 namespace Copc.Examples
@@ -45,14 +45,18 @@ namespace Copc.Examples
                 if (displayCount < maxDisplay)
                 {
                     Console.WriteLine($"  Node {key}:");
-                    Console.WriteLine($"    Min: ({box.MinX:F2}, {box.MinY:F2}, {box.MinZ:F2})");
-                    Console.WriteLine($"    Max: ({box.MaxX:F2}, {box.MaxY:F2}, {box.MaxZ:F2})");
-                    Console.WriteLine($"    Center: ({box.Center.X:F2}, {box.Center.Y:F2}, {box.Center.Z:F2})");
+                    Console.WriteLine($"    Min: ({box.Min.X:F2}, {box.Min.Y:F2}, {box.Min.Z:F2})");
+                    Console.WriteLine($"    Max: ({box.Max.X:F2}, {box.Max.Y:F2}, {box.Max.Z:F2})");
+                    var center = new Vector3(
+                        (float)((box.Min.X + box.Max.X) * 0.5),
+                        (float)((box.Min.Y + box.Max.Y) * 0.5),
+                        (float)((box.Min.Z + box.Max.Z) * 0.5));
+                    Console.WriteLine($"    Center: ({center.X:F2}, {center.Y:F2}, {center.Z:F2})");
                     
                     // Calculate dimensions
-                    double width = box.MaxX - box.MinX;
-                    double height = box.MaxY - box.MinY;
-                    double depth = box.MaxZ - box.MinZ;
+                    double width = box.Max.X - box.Min.X;
+                    double height = box.Max.Y - box.Min.Y;
+                    double depth = box.Max.Z - box.Min.Z;
                     Console.WriteLine($"    Dimensions: {width:F2} x {height:F2} x {depth:F2}\n");
                     
                     displayCount++;
@@ -73,9 +77,9 @@ namespace Copc.Examples
                 double avgWidth = 0, avgHeight = 0, avgDepth = 0;
                 foreach (var box in boundingBoxes.Values)
                 {
-                    avgWidth += box.MaxX - box.MinX;
-                    avgHeight += box.MaxY - box.MinY;
-                    avgDepth += box.MaxZ - box.MinZ;
+                    avgWidth += box.Max.X - box.Min.X;
+                    avgHeight += box.Max.Y - box.Min.Y;
+                    avgDepth += box.Max.Z - box.Min.Z;
                 }
                 avgWidth /= boundingBoxes.Count;
                 avgHeight /= boundingBoxes.Count;
@@ -162,9 +166,9 @@ namespace Copc.Examples
                 {
                     // Calculate average dimensions
                     double avgWidth = 0;
-                    foreach (var box in boundingBoxes.Values)
+                foreach (var box in boundingBoxes.Values)
                     {
-                        avgWidth += box.MaxX - box.MinX;
+                    avgWidth += box.Max.X - box.Min.X;
                     }
                     avgWidth /= boundingBoxes.Count;
 

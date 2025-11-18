@@ -1,4 +1,6 @@
 using System;
+using StrideBoundingBox = Stride.Core.Mathematics.BoundingBox;
+using StrideVector3 = Stride.Core.Mathematics.Vector3;
 
 namespace Copc.Geometry
 {
@@ -49,6 +51,7 @@ namespace Copc.Geometry
         public Vector3 Min => new Vector3(MinX, MinY, MinZ);
         public Vector3 Max => new Vector3(MaxX, MaxY, MaxZ);
         public Vector3 Center => new Vector3((MinX + MaxX) / 2, (MinY + MaxY) / 2, (MinZ + MaxZ) / 2);
+        public Vector3 Size => new Vector3(MaxX - MinX, MaxY - MinY, MaxZ - MinZ);
 
         /// <summary>
         /// Tests if this box contains a point.
@@ -85,9 +88,10 @@ namespace Copc.Geometry
         /// </summary>
         public bool Intersects(Box other)
         {
-            return !(MaxX < other.MinX || MinX > other.MaxX ||
-                     MaxY < other.MinY || MinY > other.MaxY ||
-                     MaxZ < other.MinZ || MinZ > other.MaxZ);
+            // Prefer Stride implementation for intersection testing
+            var a = ToStride();
+            var b = other.ToStride();
+            return a.Intersects(b);
         }
 
     /// <summary>
@@ -143,6 +147,30 @@ namespace Copc.Geometry
         public override string ToString()
         {
             return $"Box[({MinX}, {MinY}, {MinZ}) -> ({MaxX}, {MaxY}, {MaxZ})]";
+        }
+
+        // Stride interop
+
+        /// <summary>
+        /// Converts this box to a Stride BoundingBox.
+        /// </summary>
+        public StrideBoundingBox ToStride()
+        {
+            return new StrideBoundingBox(
+                new StrideVector3((float)MinX, (float)MinY, (float)MinZ),
+                new StrideVector3((float)MaxX, (float)MaxY, (float)MaxZ)
+            );
+        }
+
+        /// <summary>
+        /// Creates a Box from a Stride BoundingBox.
+        /// </summary>
+        public static Box FromStride(StrideBoundingBox bbox)
+        {
+            return new Box(
+                bbox.Minimum.X, bbox.Minimum.Y, bbox.Minimum.Z,
+                bbox.Maximum.X, bbox.Maximum.Y, bbox.Maximum.Z
+            );
         }
     }
 }
