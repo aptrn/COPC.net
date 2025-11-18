@@ -9,6 +9,7 @@ using StrideBoundingFrustum = Stride.Core.Mathematics.BoundingFrustum;
 using StrideBoundingSphere = Stride.Core.Mathematics.BoundingSphere;
 using System.Linq;
 using System.Threading.Tasks;
+using Copc.LazPerf;
 
 namespace Copc.Cache
 {
@@ -52,6 +53,8 @@ namespace Copc.Cache
             this.reader = reader ?? throw new ArgumentNullException(nameof(reader));
             this.cache = cache ?? throw new ArgumentNullException(nameof(cache));
             this.ownReader = ownReader;
+            // Provide extra dimension definitions to the cache so it can precompute separated arrays on Put()
+            this.cache.SetExtraDimensions(reader.Config.ExtraDimensions);
         }
 
         /// <summary>
@@ -316,6 +319,254 @@ namespace Copc.Cache
         {
             return reader.GetNodesAtResolution(resolution);
         }
+
+		/// <summary>
+		/// Updates the cache by decoding nodes directly into separated arrays (no CopcPoint allocation).
+		/// Optionally restrict which extra dimensions to include and optionally store separated-only in cache.
+		/// </summary>
+		public void UpdateSeparated(IEnumerable<Node> nodes, string[]? includeExtraDimensionNames = null, bool storeSeparatedOnly = false)
+		{
+			if (nodes == null) throw new ArgumentNullException(nameof(nodes));
+
+			// Determine which nodes actually need loading
+			nodesToLoadScratch.Clear();
+			foreach (var node in nodes)
+			{
+				if (!cache.Contains(node.Key))
+				{
+					nodesToLoadScratch.Add(node);
+				}
+			}
+
+			if (nodesToLoadScratch.Count == 0)
+				return;
+
+			// Step 1: Read compressed chunks sequentially
+			var compressed = compressedScratch;
+			compressed.Clear();
+			foreach (var node in nodesToLoadScratch)
+			{
+				try
+				{
+					if (node.PointCount == 0 || node.ByteSize == 0)
+						continue;
+
+					var data = reader.GetPointDataCompressed(node);
+					if (data != null && data.Length > 0)
+					{
+						compressed.Add((node, data));
+					}
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"Warning: Failed to read compressed data for node {node.Key}: {ex.Message}");
+				}
+			}
+
+			if (compressed.Count == 0)
+				return;
+
+			var header = reader.Config.LasHeader;
+			var extras = reader.Config.ExtraDimensions;
+			HashSet<string>? include = null;
+			if (includeExtraDimensionNames != null && includeExtraDimensionNames.Length > 0)
+				include = new HashSet<string>(includeExtraDimensionNames);
+
+			// Step 2: Decompress sequentially into separated arrays
+			for (int i = 0; i < compressed.Count; i++)
+			{
+				var item = compressed[i];
+				try
+				{
+					var separated = DecompressNodeToSeparated(item.node, item.data, header, extras, include);
+					if (storeSeparatedOnly)
+					{
+						cache.PutSeparatedOnly(item.node.Key, separated);
+					}
+					else
+					{
+						// If we also want CopcPoint[] for compatibility, build via existing path once
+						var points = LazDecompressor.DecompressChunk(
+							header.BasePointFormat,
+							header.PointDataRecordLength,
+							item.data,
+							item.node.PointCount,
+							header,
+							extras
+						);
+						cache.Put(item.node.Key, points); // Put() will attach separated automatically if configured
+					}
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"Warning: Failed to decompress (separated) node {item.node.Key}: {ex.Message}");
+				}
+			}
+		}
+
+		private static SeparatedNodeData DecompressNodeToSeparated(Node node, byte[] compressedData, LasHeader header, List<ExtraDimension>? extraDimensions, HashSet<string>? includeNames)
+		{
+			int pointFormat = header.BasePointFormat;
+			int pointSize = header.PointDataRecordLength;
+			int pointCount = node.PointCount;
+
+			var decompressor = new ChunkDecompressor();
+			decompressor.Open(pointFormat, pointSize, compressedData);
+
+			// Pre-allocate
+			var positions = new StrideVector4[pointCount];
+			var colors = new StrideVector4[pointCount];
+
+			Dictionary<string, float[]>? extraArrays = null;
+			List<ExtraDimension>? dimsOrdered = null;
+			bool includeExtras = extraDimensions != null && extraDimensions.Count > 0;
+			if (includeExtras)
+			{
+				dimsOrdered = new List<ExtraDimension>(extraDimensions!);
+				extraArrays = new Dictionary<string, float[]>(dimsOrdered.Count);
+				for (int d = 0; d < dimsOrdered.Count; d++)
+				{
+					var dim = dimsOrdered[d];
+					if (includeNames != null && includeNames.Count > 0 && !includeNames.Contains(dim.Name))
+						continue;
+					int comp = dim.GetComponentCount();
+					extraArrays[dim.Name] = new float[pointCount * comp];
+				}
+			}
+
+			int standardSize = GetStandardPointSize(pointFormat);
+
+			// Adaptive color divisor if format supports color
+			float colorDivisor = 255f;
+			bool hasColor = (pointFormat == 7 || pointFormat == 8);
+			if (hasColor)
+			{
+				int sampleCount = Math.Min(64, pointCount);
+				ushort maxComponent = 0;
+				for (int i = 0; i < sampleCount; i++)
+				{
+					var pd = decompressor.GetPoint();
+					var rgb = Rgb14.Unpack(pd, 30);
+					if (rgb.Red > maxComponent) maxComponent = rgb.Red;
+					if (rgb.Green > maxComponent) maxComponent = rgb.Green;
+					if (rgb.Blue > maxComponent) maxComponent = rgb.Blue;
+				}
+				colorDivisor = ChooseColorDivisor(maxComponent);
+
+				// Re-open to restart stream for full pass
+				decompressor.Close();
+				decompressor.Open(pointFormat, pointSize, compressedData);
+			}
+
+			for (int i = 0; i < pointCount; i++)
+			{
+				var pd = decompressor.GetPoint();
+
+				switch (pointFormat)
+				{
+					case 0:
+					{
+						var las = LasPoint10.Unpack(pd, 0);
+						positions[i] = new StrideVector4(
+							(float)(las.X * header.XScaleFactor + header.XOffset),
+							(float)(las.Y * header.YScaleFactor + header.YOffset),
+							(float)(las.Z * header.ZScaleFactor + header.ZOffset),
+							1.0f
+						);
+						colors[i] = new StrideVector4(1, 1, 1, 1);
+						break;
+					}
+					case 6:
+					{
+						var las = LasPoint14.Unpack(pd, 0);
+						positions[i] = new StrideVector4(
+							(float)(las.X * header.XScaleFactor + header.XOffset),
+							(float)(las.Y * header.YScaleFactor + header.YOffset),
+							(float)(las.Z * header.ZScaleFactor + header.ZOffset),
+							1.0f
+						);
+						colors[i] = new StrideVector4(1, 1, 1, 1);
+						break;
+					}
+					case 7:
+					{
+						var las = LasPoint14.Unpack(pd, 0);
+						var rgb = Rgb14.Unpack(pd, 30);
+						positions[i] = new StrideVector4(
+							(float)(las.X * header.XScaleFactor + header.XOffset),
+							(float)(las.Y * header.YScaleFactor + header.YOffset),
+							(float)(las.Z * header.ZScaleFactor + header.ZOffset),
+							1.0f
+						);
+						colors[i] = new StrideVector4(rgb.Red / colorDivisor, rgb.Green / colorDivisor, rgb.Blue / colorDivisor, 1.0f);
+						break;
+					}
+					case 8:
+					{
+						var las = LasPoint14.Unpack(pd, 0);
+						var rgb = Rgb14.Unpack(pd, 30);
+						positions[i] = new StrideVector4(
+							(float)(las.X * header.XScaleFactor + header.XOffset),
+							(float)(las.Y * header.YScaleFactor + header.YOffset),
+							(float)(las.Z * header.ZScaleFactor + header.ZOffset),
+							1.0f
+						);
+						colors[i] = new StrideVector4(rgb.Red / colorDivisor, rgb.Green / colorDivisor, rgb.Blue / colorDivisor, 1.0f);
+						break;
+					}
+					default:
+						throw new NotImplementedException($"Point format {pointFormat} decoding not implemented for separated path.");
+				}
+
+				if (includeExtras && extraArrays != null)
+				{
+					int offset = standardSize;
+					for (int d = 0; d < dimsOrdered!.Count; d++)
+					{
+						var dim = dimsOrdered[d];
+						int compSize = dim.GetDataSize();
+						int compCount = dim.GetComponentCount();
+						int totalSize = compSize * compCount;
+						if (extraArrays.TryGetValue(dim.Name, out var arr))
+						{
+							int writeIndex = i * compCount;
+							dim.ExtractAsFloat32Into(pd, offset, arr, writeIndex);
+						}
+						offset += totalSize;
+					}
+				}
+			}
+
+			decompressor.Close();
+			return new SeparatedNodeData
+			{
+				Positions = positions,
+				Colors = colors,
+				ExtraDimensionArrays = extraArrays
+			};
+		}
+
+		private static int GetStandardPointSize(int pointFormat)
+		{
+			return pointFormat switch
+			{
+				0 => 20,
+				1 => 28,
+				2 => 26,
+				3 => 34,
+				6 => 30,
+				7 => 36,
+				8 => 38,
+				_ => throw new NotImplementedException($"Point format {pointFormat} size not defined")
+			};
+		}
+
+		private static float ChooseColorDivisor(ushort maxComponent)
+		{
+			if (maxComponent <= 255) return 255f;
+			if (maxComponent <= 4095) return 4095f;
+			return 65535f;
+		}
 
         // Cached query methods - these combine node queries with point loading
 
