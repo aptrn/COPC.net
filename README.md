@@ -6,9 +6,9 @@ This is vibe-coded off the [C++ implementation](https://github.com/RockRobotic/c
 
 ## To-Do
 
-  -  [ ] 1. implement "distance" based selection of relevant chunks. closer must be hi-res, distant should be lo-res.
-  -  [ ] 2. smart "caching" system. only unpack what is not already unpacked, checking against a buffer with fixed maximum size.
-  -  [ ] 3. extra dimension retrival. we should get scalar fields values for each point. also give a list of all available extra dimension when starting.
+  -  [x] 1. octree traversal strategy
+  -  [x] 2. smart "caching" system. only unpack what is not already unpacked, checking against a buffer with fixed maximum size.
+  -  [ ] 3. double check extra dimension retrival. we should get scalar fields values for each point. also give a list of all available extra dimension when starting.
 
 ## What is COPC?
 
