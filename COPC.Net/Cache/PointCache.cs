@@ -41,20 +41,42 @@ namespace Copc.Cache
 	/// <summary>
 	/// Per-node separated arrays ready for GPU upload.
 	/// </summary>
-	public class SeparatedNodeData
+	public class SeparatedNodeData : IDisposable
 	{
 		public StrideVector4[] Positions { get; set; } = Array.Empty<StrideVector4>();
 		public StrideVector4[] Colors { get; set; } = Array.Empty<StrideVector4>();
 		public Dictionary<string, float[]>? ExtraDimensionArrays { get; set; }
 		public int Count => Positions?.Length ?? 0;
+		internal long MemoryPressure { get; set; }
+		private bool disposed;
+
+		public void Dispose()
+		{
+			if (disposed)
+				return;
+
+			if (MemoryPressure > 0)
+			{
+				GC.RemoveMemoryPressure(MemoryPressure);
+				MemoryPressure = 0;
+			}
+
+			Positions = Array.Empty<StrideVector4>();
+			Colors = Array.Empty<StrideVector4>();
+			ExtraDimensionArrays?.Clear();
+			ExtraDimensionArrays = null;
+
+			disposed = true;
+		}
 	}
 
     /// <summary>
     /// Smart cache for COPC point cloud data with automatic memory management.
     /// Uses LRU (Least Recently Used) eviction policy when the cache is full.
     /// </summary>
-    public class PointCache
+    public class PointCache : IDisposable
     {
+        private bool disposed;
         // Configuration
         private readonly long maxMemoryBytes;
         private readonly int estimatedBytesPerPoint;
@@ -146,6 +168,10 @@ namespace Copc.Cache
 			cachedStrideData = null;
 			strideCacheDirty = true;
 			extraDimensionsForSeparated = null;
+			disposed = false;
+
+			// Inform GC about the memory pressure from this cache
+			GC.AddMemoryPressure(maxMemoryBytes);
         }
 
         /// <summary>
@@ -212,6 +238,7 @@ namespace Copc.Cache
             if (cache.TryGetValue(key, out var existingNode))
             {
 				currentMemoryBytes -= (existingNode.Value.MemorySize + existingNode.Value.SeparatedMemorySize);
+				existingNode.Value.Separated?.Dispose();
                 lruList.Remove(existingNode);
                 cache.Remove(key);
             }
@@ -271,6 +298,7 @@ namespace Copc.Cache
 			if (cache.TryGetValue(key, out var existingNode))
 			{
 				currentMemoryBytes -= (existingNode.Value.MemorySize + existingNode.Value.SeparatedMemorySize);
+				existingNode.Value.Separated?.Dispose();
 				lruList.Remove(existingNode);
 				cache.Remove(key);
 			}
@@ -400,7 +428,8 @@ namespace Copc.Cache
         {
             if (cache.TryGetValue(key, out var node))
             {
-                currentMemoryBytes -= node.Value.MemorySize;
+                currentMemoryBytes -= (node.Value.MemorySize + node.Value.SeparatedMemorySize);
+                node.Value.Separated?.Dispose();
                 lruList.Remove(node);
                 cache.Remove(key);
 				// Content changed
@@ -415,11 +444,25 @@ namespace Copc.Cache
         /// </summary>
         public void Clear()
         {
+            // Clear references and dispose separated data to help GC
+            foreach (var node in lruList)
+            {
+                node.Points = Array.Empty<CopcPoint>();
+                node.Separated?.Dispose();
+                node.Separated = null;
+            }
+
             cache.Clear();
             lruList.Clear();
             currentMemoryBytes = 0;
+			cachedStrideData?.Dispose();
 			cachedStrideData = null;
 			strideCacheDirty = true;
+
+			// Clear scratch lists
+			allPoints.Clear();
+			nodesToLoadScratch.Clear();
+			allStridePointsScratch.Clear();
         }
 
         /// <summary>
@@ -475,6 +518,10 @@ namespace Copc.Cache
             cache.Remove(lruData.Key);
             lruList.RemoveLast();
 			currentMemoryBytes -= (lruData.MemorySize + lruData.SeparatedMemorySize);
+			
+			// Dispose separated data to release GC pressure
+			lruData.Separated?.Dispose();
+			
             totalEvictions++;
 			// Content changed
 			strideCacheDirty = true;
@@ -499,6 +546,9 @@ namespace Copc.Cache
 			{
 				return cachedStrideData;
 			}
+
+			// Dispose old cached stride data if it exists
+			cachedStrideData?.Dispose();
 
 			// Gather cached arrays and compute total size
 			var cachedNodes = GetCachedNodes();
@@ -631,6 +681,7 @@ namespace Copc.Cache
 				Colors = colors,
 				ExtraDimensionArrays = extraArrays
 			};
+			data.AddMemoryPressure();
 
 			cachedStrideData = data;
 			strideCacheDirty = false;
@@ -768,12 +819,14 @@ namespace Copc.Cache
 				}
 			});
 
-			return new StrideCacheData
+			var result = new StrideCacheData
 			{
 				Positions = positions,
 				Colors = colors,
 				ExtraDimensionArrays = extraArrays
 			};
+			result.AddMemoryPressure();
+			return result;
 		}
 
         /// <summary>
@@ -811,6 +864,38 @@ namespace Copc.Cache
 				}
 			}
 			return size;
+		}
+
+		/// <summary>
+		/// Disposes the cache and releases all memory.
+		/// </summary>
+		public void Dispose()
+		{
+			if (disposed)
+				return;
+
+			// Clear all cached data and dispose separated data
+			foreach (var node in lruList)
+			{
+				node.Points = Array.Empty<CopcPoint>();
+				node.Separated?.Dispose();
+				node.Separated = null;
+			}
+
+			cache.Clear();
+			lruList.Clear();
+			cachedStrideData?.Dispose();
+			cachedStrideData = null;
+
+			// Clear scratch lists
+			allPoints.Clear();
+			nodesToLoadScratch.Clear();
+			allStridePointsScratch.Clear();
+
+			// Release GC memory pressure
+			GC.RemoveMemoryPressure(maxMemoryBytes);
+
+			disposed = true;
 		}
     }
 

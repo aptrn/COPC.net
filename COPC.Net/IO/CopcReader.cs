@@ -886,7 +886,9 @@ namespace Copc.IO
                     stream.Dispose();
                 }
 
-                // LasZipDll doesn't implement IDisposable, no need to dispose
+                // Clear caches to release references
+                pageCache.Clear();
+                nodeCache.Clear();
 
                 disposed = true;
             }

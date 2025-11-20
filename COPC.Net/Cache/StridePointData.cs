@@ -94,8 +94,10 @@ namespace Copc.Cache
     /// Contains all cached point data in Stride format, ready for rendering.
     /// Provides both combined and separate arrays for flexible GPU upload.
     /// </summary>
-    public class StrideCacheData
+    public class StrideCacheData : IDisposable
     {
+        private bool disposed;
+        private long memoryPressure;
         /// <summary>
         /// All points in the cache in Stride format (interleaved).
         /// </summary>
@@ -219,6 +221,58 @@ namespace Copc.Cache
             }
         }
 
+        /// <summary>
+        /// Adds GC memory pressure hint for the allocated arrays.
+        /// Call this after allocating large arrays.
+        /// </summary>
+        internal void AddMemoryPressure()
+        {
+            if (memoryPressure > 0)
+                return; // Already added
+
+            long pressure = 0;
+            if (Positions != null)
+                pressure += (long)Positions.Length * sizeof(float) * 4;
+            if (Colors != null)
+                pressure += (long)Colors.Length * sizeof(float) * 4;
+            if (ExtraDimensionArrays != null)
+            {
+                foreach (var arr in ExtraDimensionArrays.Values)
+                {
+                    if (arr != null)
+                        pressure += (long)arr.Length * sizeof(float);
+                }
+            }
+            if (Points != null)
+                pressure += (long)Points.Length * (sizeof(float) * 8 + 64); // Estimate for struct + dictionaries
+
+            if (pressure > 0)
+            {
+                GC.AddMemoryPressure(pressure);
+                memoryPressure = pressure;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (disposed)
+                return;
+
+            if (memoryPressure > 0)
+            {
+                GC.RemoveMemoryPressure(memoryPressure);
+                memoryPressure = 0;
+            }
+
+            Points = Array.Empty<StridePoint>();
+            Positions = null;
+            Colors = null;
+            ExtraDimensionArrays?.Clear();
+            ExtraDimensionArrays = null;
+
+            disposed = true;
+        }
+
         public override string ToString()
         {
             return $"StrideCacheData: {Count:N0} points, {MemorySize / 1024.0 / 1024.0:F2} MB";
@@ -298,12 +352,14 @@ namespace Copc.Cache
 				}
 			}
 
-			return new StrideCacheData
+			var result = new StrideCacheData
 			{
 				Positions = positions,
 				Colors = colors,
 				ExtraDimensionArrays = extraArrays
 			};
+			result.AddMemoryPressure();
+			return result;
 		}
 
         /// <summary>
