@@ -431,18 +431,25 @@ namespace Copc.IO
         public List<Node> TraverseNodes(TraversalOptions options)
         {
             var results = new List<Node>();
+            var stoppedAtKeys = new HashSet<string>(); // Keys where we stopped (continueToChildren = false)
             var rootPage = LoadRootHierarchyPage();
-            TraversePage(rootPage, options, results);
+            TraversePage(rootPage, options, results, stoppedAtKeys);
             return results;
         }
 
-        private void TraversePage(Page page, TraversalOptions options, List<Node> results)
+        private void TraversePage(Page page, TraversalOptions options, List<Node> results, HashSet<string> stoppedAtKeys)
         {
             if (!page.Loaded)
                 LoadHierarchyPage(page);
 
             foreach (var entry in page.Children.Values)
             {
+                var keyString = entry.Key.ToString();
+                
+                // Check if this entry is a descendant of a node where we stopped (continueToChildren = false)
+                if (IsDescendantOfStoppedKey(entry.Key, stoppedAtKeys))
+                    continue;
+
                 var bounds = entry.Key.GetBounds(Config.LasHeader, Config.CopcInfo);
                 var isNode = entry is Node;
                 var pointCount = isNode ? ((Node)entry).PointCount : -1;
@@ -460,33 +467,53 @@ namespace Copc.IO
                 if (!options.SpatialPredicate(ctx))
                     continue;
 
+                // Resolution decision - returns (accept, continueToChildren)
+                var (accept, continueToChildren) = options.ResolutionPredicate(ctx);
+
                 if (isNode)
                 {
-                    // Resolution decision - returns (accept, continueToChildren)
-                    var (accept, continueToChildren) = options.ResolutionPredicate(ctx);
-                    
+                    // Add node to results if accepted
                     if (accept)
                     {
                         results.Add((Node)entry);
                     }
                     
-                    // Nodes are leaf entries (no children to traverse)
+                    // If continueToChildren is false, mark this key as stopped
+                    // so we don't process its descendants
+                    if (!continueToChildren)
+                    {
+                        stoppedAtKeys.Add(keyString);
+                    }
                 }
                 else if (entry is Page childPage)
                 {
-                    // Check resolution predicate for the page to decide if we should descend
-                    var (_, continueToChildren) = options.ResolutionPredicate(ctx);
-                    
+                    // Only traverse into pages if continueToChildren is true
                     if (continueToChildren)
                     {
                         if (!childPage.Loaded)
                             LoadHierarchyPage(childPage);
 
                         // Recurse into child page
-                        TraversePage(childPage, options, results);
+                        TraversePage(childPage, options, results, stoppedAtKeys);
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Checks if a key is a descendant of any key in the stopped set.
+        /// </summary>
+        private bool IsDescendantOfStoppedKey(VoxelKey key, HashSet<string> stoppedAtKeys)
+        {
+            // Check all ancestor keys to see if any are in the stopped set
+            var current = key;
+            while (current.D > 0)
+            {
+                current = current.GetParent();
+                if (stoppedAtKeys.Contains(current.ToString()))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -866,4 +893,5 @@ namespace Copc.IO
         }
     }
 }
+
 

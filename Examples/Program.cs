@@ -51,6 +51,15 @@ namespace Copc.Examples
                         }
                         TraversalPresetsExample.Run(args[1]);
                         break;
+                    case "continue-to-children":
+                        // continue-to-children <file>
+                        if (args.Length < 2)
+                        {
+                            Console.WriteLine("Usage: Examples continue-to-children <copc-file>");
+                            return;
+                        }
+                        ContinueToChildrenTest.Run(args[1]);
+                        break;
                     case "cache-update-bench":
                         // cache-update-bench <file> [cacheMB]
                         if (args.Length < 2)
@@ -339,6 +348,7 @@ namespace Copc.Examples
         {
             Console.WriteLine("Usage:");
             Console.WriteLine("  Examples traversal-presets <copc-file>");
+            Console.WriteLine("  Examples continue-to-children <copc-file>");
             Console.WriteLine("  Examples random <copc-file> <lod-depth>");
             Console.WriteLine("  Examples bbox-lod <copc-file> <lod> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");
             Console.WriteLine("  Examples bbox-res <copc-file> <resolution> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>");

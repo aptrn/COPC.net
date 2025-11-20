@@ -130,7 +130,8 @@ namespace Copc.Examples
                     double dist = Math.Sqrt(dx * dx + dy * dy + dz * dz);
                     double desiredResolution = Math.Max(minResolution, slope * dist);
                     bool accept = ctx.NodeResolution <= desiredResolution;
-                    return (accept, true); // accept if resolution is fine enough, continue to children
+                    // If resolution is fine enough, accept and stop; otherwise continue to finer LODs
+                    return (accept, !accept);
                 }
             };
             var adaptiveNodes = reader.TraverseNodes(adaptiveOptions);
@@ -171,8 +172,8 @@ namespace Copc.Examples
                     
                     bool accept = ctx.NodeResolution <= desiredResolution;
                     
-                    // Continue to children to allow finer LODs where needed
-                    return (accept, true);
+                    // If resolution is fine enough, accept and stop; otherwise continue to finer LODs
+                    return (accept, !accept);
                 }
             };
             var cameraWNodes = reader.TraverseNodes(cameraWOptions);

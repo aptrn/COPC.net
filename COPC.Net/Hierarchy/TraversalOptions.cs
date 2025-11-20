@@ -48,19 +48,22 @@ namespace Copc.Hierarchy
 
         /// <summary>
         /// Resolution predicate: given the current entry context (node or page),
-        /// returns a tuple indicating (1) whether to accept the node, and (2) whether to continue traversing children.
+        /// returns a tuple indicating (1) whether to accept the entry, and (2) whether to continue traversing children.
         /// 
         /// Return values:
-        /// - accept: true to add this node to results, false to skip it
-        /// - continueToChildren: true to continue descending into children, false to stop at this node
+        /// - accept: true to add this node to results (only applies to nodes, not pages), false to skip it
+        /// - continueToChildren: true to continue descending into children, false to stop and skip all descendants
         /// 
-        /// This allows per-node control over LOD cascade behavior. For example:
-        /// - (true, true): Accept node and continue to finer LODs (common for progressive loading)
-        /// - (true, false): Accept node but stop here (useful when desired resolution is reached)
+        /// This allows per-entry control over LOD cascade behavior. For example:
+        /// - (true, true): Accept node/page and continue to finer LODs (traverse all levels)
+        /// - (true, false): Accept node but stop here - skip all descendants (useful when desired resolution is reached)
         /// - (false, true): Skip this node but check children (useful for coarse-to-fine selection)
-        /// - (false, false): Skip this node and its entire subtree
+        /// - (false, false): Skip this entry and its entire subtree (prune this branch)
         /// 
-        /// Note: This is only called for actual nodes, not for pages during traversal.
+        /// Note: This is called for both nodes and pages. Pages are containers and cannot be "accepted" 
+        /// (accept is ignored for pages), but continueToChildren controls whether to traverse into them.
+        /// For nodes, accept controls whether to include the node in results, and continueToChildren 
+        /// controls whether to process child nodes at finer LOD levels.
         /// </summary>
         public Func<NodeTraversalContext, (bool accept, bool continueToChildren)> ResolutionPredicate { get; set; } = _ => (true, true);
     }
