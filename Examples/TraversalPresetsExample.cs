@@ -63,25 +63,25 @@ namespace Copc.Examples
 
             // 1) Preset: Bounding Box
             Console.WriteLine("--- Preset: Bounding Box ---");
-            var boxOptions = TraversalPresets.Box(testBox, resolution: sampleResolution, continueAfterAccept: true);
+            var boxOptions = TraversalPresets.Box(testBox, resolution: sampleResolution, continueToChildren: true);
             var boxNodes = reader.TraverseNodes(boxOptions);
             PrintNodeSummary(reader, boxNodes);
 
             // 2) Preset: Sphere (radius)
             Console.WriteLine("--- Preset: Sphere (Radius) ---");
-            var sphereOptions = TraversalPresets.Sphere(testSphere, resolution: sampleResolution, continueAfterAccept: true);
+            var sphereOptions = TraversalPresets.Sphere(testSphere, resolution: sampleResolution, continueToChildren: true);
             var sphereNodes = reader.TraverseNodes(sphereOptions);
             PrintNodeSummary(reader, sphereNodes);
 
             // 3) Preset: Distance From Point (same as sphere)
             Console.WriteLine("--- Preset: Distance From Point ---");
-            var distOptions = TraversalPresets.DistanceFromPoint(center, sphereRadius, resolution: sampleResolution, continueAfterAccept: true);
+            var distOptions = TraversalPresets.DistanceFromPoint(center, sphereRadius, resolution: sampleResolution, continueToChildren: true);
             var distNodes = reader.TraverseNodes(distOptions);
             PrintNodeSummary(reader, distNodes);
 
             // 4) Preset: Frustum
             Console.WriteLine("--- Preset: Frustum ---");
-            var frustumOptions = TraversalPresets.Frustum(testFrustum, resolution: sampleResolution, continueAfterAccept: true);
+            var frustumOptions = TraversalPresets.Frustum(testFrustum, resolution: sampleResolution, continueToChildren: true);
             var frustumNodes = reader.TraverseNodes(frustumOptions);
             PrintNodeSummary(reader, frustumNodes);
 
@@ -93,7 +93,7 @@ namespace Copc.Examples
             double camMinRes = info.Spacing / 8.0;       // clamp minimum resolution near camera
 
             var frustumCameraOptions = TraversalPresets.FrustumWithDistanceResolution(
-                testFrustum, camera, camSlope, camMinRes, continueAfterAccept: true);
+                testFrustum, camera, camSlope, camMinRes, continueToChildren: true);
             var frustumCameraNodes = reader.TraverseNodes(frustumCameraOptions);
             PrintNodeSummary(reader, frustumCameraNodes);
 
@@ -106,8 +106,7 @@ namespace Copc.Examples
             var slabOptions = new TraversalOptions
             {
                 SpatialPredicate = ctx => ctx.Bounds.Intersects(upperSlab),
-                ResolutionPredicate = _ => true, // accept all nodes (no resolution filtering)
-                ContinueAfterAccept = true
+                ResolutionPredicate = _ => (true, true) // accept all nodes and continue to children
             };
             var slabNodes = reader.TraverseNodes(slabOptions);
             PrintNodeSummary(reader, slabNodes);
@@ -130,12 +129,66 @@ namespace Copc.Examples
                     double dz = c.Z - focus.Z;
                     double dist = Math.Sqrt(dx * dx + dy * dy + dz * dz);
                     double desiredResolution = Math.Max(minResolution, slope * dist);
-                    return ctx.NodeResolution <= desiredResolution;
-                },
-                ContinueAfterAccept = true
+                    bool accept = ctx.NodeResolution <= desiredResolution;
+                    return (accept, true); // accept if resolution is fine enough, continue to children
+                }
             };
             var adaptiveNodes = reader.TraverseNodes(adaptiveOptions);
             PrintNodeSummary(reader, adaptiveNodes);
+
+            // C) Camera W-based LOD (perspective depth with aggressive falloff)
+            Console.WriteLine("--- Custom: Camera W-based Perspective LOD ---");
+            var cameraPos = new Vector3(center.X, center.Y, (float)(center.Z - halfZ * 0.5)); // camera below and in front
+            var viewDir = Vector3.Normalize(new Vector3(0, 0, 1)); // looking up/forward along +Z
+            
+            // Much more aggressive parameters to make distance-based reduction evident
+            double wSlope = info.Spacing * 2.0;  // 2x spacing growth per meter (was 0.01!)
+            double wMinRes = info.Spacing * 2.0;  // start at 2x root spacing (was /8, which was too fine)
+            
+            var cameraWOptions = new TraversalOptions
+            {
+                SpatialPredicate = _ => true, // no spatial pruning
+                ResolutionPredicate = ctx =>
+                {
+                    var sb = ctx.Bounds.ToStride();
+                    var nodeCenter = (sb.Minimum + sb.Maximum) * 0.5f;
+                    
+                    // Compute vector from camera to node
+                    var toNode = nodeCenter - cameraPos;
+                    
+                    // Option 1: Simple Euclidean distance (similar to perspective w)
+                    double distEuclidean = toNode.Length();
+                    
+                    // Option 2: Project onto view direction (more like actual perspective depth)
+                    // This gives you the "w" component in view space
+                    double distViewSpace = Math.Max(0, Vector3.Dot(toNode, viewDir));
+                    
+                    // Use view-space depth for more camera-like behavior
+                    double w = distViewSpace;
+                    
+                    // Desired resolution grows linearly with w (distance from camera)
+                    double desiredResolution = Math.Max(wMinRes, wSlope * w);
+                    
+                    bool accept = ctx.NodeResolution <= desiredResolution;
+                    
+                    // Continue to children to allow finer LODs where needed
+                    return (accept, true);
+                }
+            };
+            var cameraWNodes = reader.TraverseNodes(cameraWOptions);
+            PrintNodeSummary(reader, cameraWNodes);
+            
+            // Print some diagnostics to show the LOD behavior
+            Console.WriteLine("LOD Parameters:");
+            Console.WriteLine($"  Camera Position: {cameraPos}");
+            Console.WriteLine($"  View Direction: {viewDir}");
+            Console.WriteLine($"  Root Spacing: {info.Spacing:F4}m");
+            Console.WriteLine($"  Min Resolution: {wMinRes:F4}m (at camera)");
+            Console.WriteLine($"  Slope: {wSlope:F4} (resolution per meter)");
+            Console.WriteLine($"  At 10m: {Math.Max(wMinRes, wSlope * 10):F4}m resolution");
+            Console.WriteLine($"  At 50m: {Math.Max(wMinRes, wSlope * 50):F4}m resolution");
+            Console.WriteLine($"  At 100m: {Math.Max(wMinRes, wSlope * 100):F4}m resolution");
+            Console.WriteLine();
 
             Console.WriteLine("\n✅ Done.");
         }

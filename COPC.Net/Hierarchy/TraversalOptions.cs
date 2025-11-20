@@ -48,18 +48,21 @@ namespace Copc.Hierarchy
 
         /// <summary>
         /// Resolution predicate: given the current entry context (node or page),
-        /// return true if the node should be accepted based on its resolution.
-        /// Return true to accept the node, false to reject it.
+        /// returns a tuple indicating (1) whether to accept the node, and (2) whether to continue traversing children.
+        /// 
+        /// Return values:
+        /// - accept: true to add this node to results, false to skip it
+        /// - continueToChildren: true to continue descending into children, false to stop at this node
+        /// 
+        /// This allows per-node control over LOD cascade behavior. For example:
+        /// - (true, true): Accept node and continue to finer LODs (common for progressive loading)
+        /// - (true, false): Accept node but stop here (useful when desired resolution is reached)
+        /// - (false, true): Skip this node but check children (useful for coarse-to-fine selection)
+        /// - (false, false): Skip this node and its entire subtree
+        /// 
         /// Note: This is only called for actual nodes, not for pages during traversal.
         /// </summary>
-        public Func<NodeTraversalContext, bool> ResolutionPredicate { get; set; } = _ => true;
-
-        /// <summary>
-        /// If true, traversal continues descending even after accepting a node at a given depth.
-        /// This can produce nodes at multiple depths (LOD cascade). If false, once a node is
-        /// accepted at a given key, its subtree is not traversed further.
-        /// </summary>
-        public bool ContinueAfterAccept { get; set; } = true;
+        public Func<NodeTraversalContext, (bool accept, bool continueToChildren)> ResolutionPredicate { get; set; } = _ => (true, true);
     }
 }
 

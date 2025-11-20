@@ -462,24 +462,27 @@ namespace Copc.IO
 
                 if (isNode)
                 {
-                    // Resolution decision
-                    bool accepted = options.ResolutionPredicate(ctx);
+                    // Resolution decision - returns (accept, continueToChildren)
+                    var (accept, continueToChildren) = options.ResolutionPredicate(ctx);
                     
-                    if (accepted)
+                    if (accept)
                     {
                         results.Add((Node)entry);
-
-                        if (!options.ContinueAfterAccept)
-                            continue; // do not descend further at this key
                     }
-                    // Nodes do not have children; nothing to descend into
+                    
+                    // Nodes themselves don't have children, but continueToChildren controls
+                    // whether we should continue traversing sibling pages at deeper LODs.
+                    // In practice, since nodes are leaf entries, this doesn't affect the current entry,
+                    // but may be useful for custom traversal logic in the future.
+                    // Currently, page traversal is independent of node acceptance.
                 }
                 else if (entry is Page childPage)
                 {
                     if (!childPage.Loaded)
                         LoadHierarchyPage(childPage);
 
-                    // Always traverse children when spatial predicate passed; resolution is applied at node level
+                    // Always traverse child pages when spatial predicate passed; 
+                    // resolution is applied at node level
                     TraversePage(childPage, options, results);
                 }
             }

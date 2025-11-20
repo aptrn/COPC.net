@@ -13,7 +13,10 @@ namespace Copc.Hierarchy
         /// Frustum-based traversal. Keeps nodes whose bounds intersect the frustum.
         /// If resolution &gt; 0, only nodes with spacing &lt;= resolution are kept.
         /// </summary>
-        public static TraversalOptions Frustum(BoundingFrustum frustum, double resolution = 0.0, bool continueAfterAccept = true)
+        /// <param name="frustum">The frustum to test against.</param>
+        /// <param name="resolution">Target resolution. If &gt; 0, nodes are accepted only if their resolution &lt;= this value.</param>
+        /// <param name="continueToChildren">Whether to continue traversing to finer LODs after accepting a node.</param>
+        public static TraversalOptions Frustum(BoundingFrustum frustum, double resolution = 0.0, bool continueToChildren = true)
         {
             return new TraversalOptions
             {
@@ -23,8 +26,11 @@ namespace Copc.Hierarchy
                     var bext = new BoundingBoxExt(sb.Minimum, sb.Maximum);
                     return frustum.Contains(ref bext);
                 },
-                ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
-                ContinueAfterAccept = continueAfterAccept
+                ResolutionPredicate = ctx =>
+                {
+                    bool accept = resolution <= 0 || ctx.NodeResolution <= resolution;
+                    return (accept, continueToChildren);
+                }
             };
         }
 
@@ -32,13 +38,19 @@ namespace Copc.Hierarchy
         /// Bounding-box traversal. Keeps nodes whose bounds intersect the given box.
         /// Matches previous GetNodesIntersectBox behavior.
         /// </summary>
-        public static TraversalOptions Box(Copc.Geometry.Box box, double resolution = 0.0, bool continueAfterAccept = true)
+        /// <param name="box">The bounding box to test against.</param>
+        /// <param name="resolution">Target resolution. If &gt; 0, nodes are accepted only if their resolution &lt;= this value.</param>
+        /// <param name="continueToChildren">Whether to continue traversing to finer LODs after accepting a node.</param>
+        public static TraversalOptions Box(Copc.Geometry.Box box, double resolution = 0.0, bool continueToChildren = true)
         {
             return new TraversalOptions
             {
                 SpatialPredicate = ctx => ctx.Bounds.Intersects(box),
-                ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
-                ContinueAfterAccept = continueAfterAccept
+                ResolutionPredicate = ctx =>
+                {
+                    bool accept = resolution <= 0 || ctx.NodeResolution <= resolution;
+                    return (accept, continueToChildren);
+                }
             };
         }
 
@@ -46,7 +58,10 @@ namespace Copc.Hierarchy
         /// Sphere/radius traversal. Keeps nodes whose bounds intersect the sphere.
         /// Matches previous GetNodesWithinRadius behavior.
         /// </summary>
-        public static TraversalOptions Sphere(BoundingSphere sphere, double resolution = 0.0, bool continueAfterAccept = true)
+        /// <param name="sphere">The bounding sphere to test against.</param>
+        /// <param name="resolution">Target resolution. If &gt; 0, nodes are accepted only if their resolution &lt;= this value.</param>
+        /// <param name="continueToChildren">Whether to continue traversing to finer LODs after accepting a node.</param>
+        public static TraversalOptions Sphere(BoundingSphere sphere, double resolution = 0.0, bool continueToChildren = true)
         {
             return new TraversalOptions
             {
@@ -55,18 +70,25 @@ namespace Copc.Hierarchy
                     var sb = ctx.Bounds.ToStride();
                     return sphere.Intersects(ref sb);
                 },
-                ResolutionPredicate = ctx => resolution <= 0 || ctx.NodeResolution <= resolution,
-                ContinueAfterAccept = continueAfterAccept
+                ResolutionPredicate = ctx =>
+                {
+                    bool accept = resolution <= 0 || ctx.NodeResolution <= resolution;
+                    return (accept, continueToChildren);
+                }
             };
         }
 
         /// <summary>
         /// Distance-from-point traversal. Equivalent to a sphere of given radius around center.
         /// </summary>
-        public static TraversalOptions DistanceFromPoint(Vector3 center, double maxDistance, double resolution = 0.0, bool continueAfterAccept = true)
+        /// <param name="center">The center point.</param>
+        /// <param name="maxDistance">Maximum distance from center.</param>
+        /// <param name="resolution">Target resolution. If &gt; 0, nodes are accepted only if their resolution &lt;= this value.</param>
+        /// <param name="continueToChildren">Whether to continue traversing to finer LODs after accepting a node.</param>
+        public static TraversalOptions DistanceFromPoint(Vector3 center, double maxDistance, double resolution = 0.0, bool continueToChildren = true)
         {
             var sphere = new BoundingSphere(center, (float)maxDistance);
-            return Sphere(sphere, resolution, continueAfterAccept);
+            return Sphere(sphere, resolution, continueToChildren);
         }
 
         /// <summary>
@@ -77,13 +99,13 @@ namespace Copc.Hierarchy
         /// <param name="viewpoint">The point from which distance is measured (typically camera position).</param>
         /// <param name="resolutionSlope">How much resolution increases per unit of distance (e.g., 0.01 means 1cm per meter).</param>
         /// <param name="minResolution">Minimum resolution clamp for nearby nodes.</param>
-        /// <param name="continueAfterAccept">Whether to continue traversing after accepting a node.</param>
+        /// <param name="continueToChildren">Whether to continue traversing to finer LODs after accepting a node.</param>
         public static TraversalOptions FrustumWithDistanceResolution(
             BoundingFrustum frustum, 
             Vector3 viewpoint, 
             double resolutionSlope, 
             double minResolution, 
-            bool continueAfterAccept = true)
+            bool continueToChildren = true)
         {
             return new TraversalOptions
             {
@@ -102,9 +124,9 @@ namespace Copc.Hierarchy
                     double dz = center.Z - viewpoint.Z;
                     double dist = System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
                     double desiredResolution = System.Math.Max(minResolution, resolutionSlope * dist);
-                    return ctx.NodeResolution <= desiredResolution;
-                },
-                ContinueAfterAccept = continueAfterAccept
+                    bool accept = ctx.NodeResolution <= desiredResolution;
+                    return (accept, continueToChildren);
+                }
             };
         }
     }
