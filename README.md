@@ -5,10 +5,11 @@ A .NET 8.0 library for reading and writing Cloud Optimized Point Cloud (COPC) fi
 This is vibe-coded off the [C++ implementation](https://github.com/RockRobotic/copc-lib).
 
 ## To-Do
-
+  - 
   -  [x] 1. octree traversal strategy
   -  [x] 2. smart "caching" system. only unpack what is not already unpacked, checking against a buffer with fixed maximum size.
   -  [ ] 3. double check extra dimension retrival. we should get scalar fields values for each point. also give a list of all available extra dimension when starting.
+  -  [ ] 4. buffer with depth per point
 
 ## What is COPC?
 
