@@ -10,6 +10,7 @@ This is vibe-coded off the [C++ implementation](https://github.com/RockRobotic/c
   -  [x] 2. smart "caching" system. only unpack what is not already unpacked, checking against a buffer with fixed maximum size.
   -  [ ] 3. double check extra dimension retrival. we should get scalar fields values for each point. also give a list of all available extra dimension when starting.
   -  [ ] 4. buffer with depth per point
+  -  [ ] 5. Update delegates so that i have a single check and another one to say what to keep in cache (? discuss w nathan)
 
 ## What is COPC?
 
