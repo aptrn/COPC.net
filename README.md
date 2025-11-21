@@ -8,8 +8,8 @@ This is vibe-coded off the [C++ implementation](https://github.com/RockRobotic/c
   - 
   -  [x] 1. octree traversal strategy
   -  [x] 2. smart "caching" system. only unpack what is not already unpacked, checking against a buffer with fixed maximum size.
-  -  [ ] 3. double check extra dimension retrival. we should get scalar fields values for each point. also give a list of all available extra dimension when starting.
-  -  [ ] 4. buffer with depth per point
+  -  [x] 3. double check extra dimension retrival. we should get scalar fields values for each point. also give a list of all available extra dimension when starting.
+  -  [x] 4. buffer with depth per point
   -  [ ] 5. Update delegates so that i have a single check and another one to say what to keep in cache (? discuss w nathan)
 
 ## What is COPC?
@@ -93,6 +93,42 @@ The cache uses LRU (Least Recently Used) eviction and automatically manages memo
 - Real-time camera movement
 - Progressive LOD loading
 - Repeated spatial queries
+
+### Depth Tracking
+
+The cache system now tracks the octree depth level for each point, allowing you to reconstruct which depth each point corresponds to:
+
+```csharp
+using var cachedReader = CachedCopcReader.Open("example.copc.laz");
+
+// Get cached data with separated arrays (including depth)
+var cacheData = cachedReader.GetCacheDataSeparated();
+
+// Access depth information for each point
+int[] depths = cacheData.Depth;  // One depth value per point
+
+// Example: Filter points by depth level
+for (int i = 0; i < cacheData.Count; i++)
+{
+    if (depths[i] == 5)  // Only points from depth level 5
+    {
+        var position = cacheData.Positions[i];
+        var color = cacheData.Colors[i];
+        // Process point...
+    }
+}
+```
+
+The depth array is automatically populated for:
+- `GetCacheDataSeparated()` - All cached points
+- `GetCacheDataSeparatedFromNodes(nodes)` - Specific nodes
+- `BuildSeparatedFromNodes()` in PointCache
+
+This is useful for:
+- Progressive LOD rendering based on depth
+- Debugging octree structure
+- Depth-based filtering and culling
+- LOD transition effects
 
 See the [Cache README](COPC.Net/Cache/README.md) for detailed documentation and the `Examples` project for more examples.
 See the `Examples` project for more detailed usage examples.
