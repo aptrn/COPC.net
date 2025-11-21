@@ -188,6 +188,11 @@ namespace Copc.Cache
                     cache.Put(node.Key, points);
                 }
             }
+
+            // Clear scratch lists to release references
+            nodesToLoadScratch.Clear();
+            compressedScratch.Clear();
+            allCopcPointsScratch.Clear();
         }
 
         // Pass-through methods to underlying reader (no caching needed for hierarchy queries)
@@ -402,6 +407,10 @@ namespace Copc.Cache
 					Console.WriteLine($"Warning: Failed to decompress (separated) node {item.node.Key}: {ex.Message}");
 				}
 			}
+
+			// Clear scratch lists to release references
+			nodesToLoadScratch.Clear();
+			compressedScratch.Clear();
 		}
 
 		private static SeparatedNodeData DecompressNodeToSeparated(Node node, byte[] compressedData, LasHeader header, List<ExtraDimension>? extraDimensions, HashSet<string>? includeNames)
@@ -416,6 +425,11 @@ namespace Copc.Cache
 			// Pre-allocate
 			var positions = new StrideVector4[pointCount];
 			var colors = new StrideVector4[pointCount];
+			var depths = new int[pointCount];
+
+			// Inform GC about memory pressure from these large allocations
+			long arrayMemoryPressure = (long)pointCount * sizeof(float) * 4 * 2 + (long)pointCount * sizeof(int); // positions + colors + depths
+			GC.AddMemoryPressure(arrayMemoryPressure);
 
 			Dictionary<string, float[]>? extraArrays = null;
 			List<ExtraDimension>? dimsOrdered = null;
@@ -457,6 +471,8 @@ namespace Copc.Cache
 				decompressor.Close();
 				decompressor.Open(pointFormat, pointSize, compressedData);
 			}
+
+			int nodeDepth = node.Key.D;
 
 			for (int i = 0; i < pointCount; i++)
 			{
@@ -518,6 +534,8 @@ namespace Copc.Cache
 						throw new NotImplementedException($"Point format {pointFormat} decoding not implemented for separated path.");
 				}
 
+				depths[i] = nodeDepth;
+
 				if (includeExtras && extraArrays != null)
 				{
 					int offset = standardSize;
@@ -538,12 +556,26 @@ namespace Copc.Cache
 			}
 
 			decompressor.Close();
-			return new SeparatedNodeData
+
+			var result = new SeparatedNodeData
 			{
 				Positions = positions,
 				Colors = colors,
-				ExtraDimensionArrays = extraArrays
+				Depth = depths,
+				ExtraDimensionArrays = extraArrays,
+				MemoryPressure = arrayMemoryPressure
 			};
+
+			// Add extra dimension array memory pressure
+			if (extraArrays != null)
+			{
+				foreach (var arr in extraArrays.Values)
+				{
+					result.MemoryPressure += (long)arr.Length * sizeof(float);
+				}
+			}
+
+			return result;
 		}
 
 		private static int GetStandardPointSize(int pointFormat)
@@ -788,6 +820,11 @@ namespace Copc.Cache
         {
             if (!disposed)
             {
+                // Clear scratch lists to release references
+                nodesToLoadScratch.Clear();
+                compressedScratch.Clear();
+                allCopcPointsScratch.Clear();
+
                 if (ownReader)
                 {
                     reader?.Dispose();

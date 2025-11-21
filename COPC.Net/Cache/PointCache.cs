@@ -41,20 +41,44 @@ namespace Copc.Cache
 	/// <summary>
 	/// Per-node separated arrays ready for GPU upload.
 	/// </summary>
-	public class SeparatedNodeData
+	public class SeparatedNodeData : IDisposable
 	{
 		public StrideVector4[] Positions { get; set; } = Array.Empty<StrideVector4>();
 		public StrideVector4[] Colors { get; set; } = Array.Empty<StrideVector4>();
+		public int[]? Depth { get; set; }
 		public Dictionary<string, float[]>? ExtraDimensionArrays { get; set; }
 		public int Count => Positions?.Length ?? 0;
+		internal long MemoryPressure { get; set; }
+		private bool disposed;
+
+		public void Dispose()
+		{
+			if (disposed)
+				return;
+
+			if (MemoryPressure > 0)
+			{
+				GC.RemoveMemoryPressure(MemoryPressure);
+				MemoryPressure = 0;
+			}
+
+			Positions = Array.Empty<StrideVector4>();
+			Colors = Array.Empty<StrideVector4>();
+			Depth = null;
+			ExtraDimensionArrays?.Clear();
+			ExtraDimensionArrays = null;
+
+			disposed = true;
+		}
 	}
 
     /// <summary>
     /// Smart cache for COPC point cloud data with automatic memory management.
     /// Uses LRU (Least Recently Used) eviction policy when the cache is full.
     /// </summary>
-    public class PointCache
+    public class PointCache : IDisposable
     {
+        private bool disposed;
         // Configuration
         private readonly long maxMemoryBytes;
         private readonly int estimatedBytesPerPoint;
@@ -146,6 +170,10 @@ namespace Copc.Cache
 			cachedStrideData = null;
 			strideCacheDirty = true;
 			extraDimensionsForSeparated = null;
+			disposed = false;
+
+			// Inform GC about the memory pressure from this cache
+			GC.AddMemoryPressure(maxMemoryBytes);
         }
 
         /// <summary>
@@ -212,6 +240,7 @@ namespace Copc.Cache
             if (cache.TryGetValue(key, out var existingNode))
             {
 				currentMemoryBytes -= (existingNode.Value.MemorySize + existingNode.Value.SeparatedMemorySize);
+				existingNode.Value.Separated?.Dispose();
                 lruList.Remove(existingNode);
                 cache.Remove(key);
             }
@@ -228,8 +257,8 @@ namespace Copc.Cache
 			// Optionally precompute separated arrays for this node (once), accounting for memory
 			if (extraDimensionsForSeparated != null && points.Length > 0)
 			{
-				// Build separated arrays
-				var sepData = StrideCacheExtensions.BuildSeparatedFromCopcPoints(points, extraDimensionsForSeparated, null);
+				// Build separated arrays with depth information
+				var sepData = StrideCacheExtensions.BuildSeparatedFromCopcPoints(points, extraDimensionsForSeparated, null, key.D);
 				var sepMem = EstimateSeparatedMemorySize(sepData);
 
 				// Ensure capacity for both entries (points + separated for this node)
@@ -245,6 +274,7 @@ namespace Copc.Cache
 					{
 						Positions = sepData.Positions ?? Array.Empty<StrideVector4>(),
 						Colors = sepData.Colors ?? Array.Empty<StrideVector4>(),
+						Depth = sepData.Depth,
 						ExtraDimensionArrays = sepData.ExtraDimensionArrays
 					};
 					cachedData.SeparatedMemorySize = sepMem;
@@ -271,6 +301,7 @@ namespace Copc.Cache
 			if (cache.TryGetValue(key, out var existingNode))
 			{
 				currentMemoryBytes -= (existingNode.Value.MemorySize + existingNode.Value.SeparatedMemorySize);
+				existingNode.Value.Separated?.Dispose();
 				lruList.Remove(existingNode);
 				cache.Remove(key);
 			}
@@ -280,6 +311,7 @@ namespace Copc.Cache
 			{
 				Positions = separated.Positions,
 				Colors = separated.Colors,
+				Depth = separated.Depth,
 				ExtraDimensionArrays = separated.ExtraDimensionArrays
 			};
 			long sepMem = EstimateSeparatedMemorySize(tempStride);
@@ -400,7 +432,8 @@ namespace Copc.Cache
         {
             if (cache.TryGetValue(key, out var node))
             {
-                currentMemoryBytes -= node.Value.MemorySize;
+                currentMemoryBytes -= (node.Value.MemorySize + node.Value.SeparatedMemorySize);
+                node.Value.Separated?.Dispose();
                 lruList.Remove(node);
                 cache.Remove(key);
 				// Content changed
@@ -415,11 +448,25 @@ namespace Copc.Cache
         /// </summary>
         public void Clear()
         {
+            // Clear references and dispose separated data to help GC
+            foreach (var node in lruList)
+            {
+                node.Points = Array.Empty<CopcPoint>();
+                node.Separated?.Dispose();
+                node.Separated = null;
+            }
+
             cache.Clear();
             lruList.Clear();
             currentMemoryBytes = 0;
+			cachedStrideData?.Dispose();
 			cachedStrideData = null;
 			strideCacheDirty = true;
+
+			// Clear scratch lists
+			allPoints.Clear();
+			nodesToLoadScratch.Clear();
+			allStridePointsScratch.Clear();
         }
 
         /// <summary>
@@ -475,6 +522,10 @@ namespace Copc.Cache
             cache.Remove(lruData.Key);
             lruList.RemoveLast();
 			currentMemoryBytes -= (lruData.MemorySize + lruData.SeparatedMemorySize);
+			
+			// Dispose separated data to release GC pressure
+			lruData.Separated?.Dispose();
+			
             totalEvictions++;
 			// Content changed
 			strideCacheDirty = true;
@@ -499,6 +550,9 @@ namespace Copc.Cache
 			{
 				return cachedStrideData;
 			}
+
+			// Dispose old cached stride data if it exists
+			cachedStrideData?.Dispose();
 
 			// Gather cached arrays and compute total size
 			var cachedNodes = GetCachedNodes();
@@ -536,6 +590,7 @@ namespace Copc.Cache
 			// Allocate destination arrays
 			var positions = new Stride.Core.Mathematics.Vector4[totalPoints];
 			var colors = new Stride.Core.Mathematics.Vector4[totalPoints];
+			var depths = new int[totalPoints];
 
 			Dictionary<string, float[]>? extraArrays = null;
 			List<ExtraDimension>? dimsOrdered = null;
@@ -565,12 +620,28 @@ namespace Copc.Cache
 				if (pts == null || pts.Length == 0) return;
 				int start = nodeOffsets[i];
 				var sep = nodeSeparated[i];
+				var nodeInfo = cachedNodes[i];
+				int nodeDepth = nodeInfo.Key.D;
 
 				if (sep != null && sep.Positions != null && sep.Positions.Length == pts.Length)
 				{
 					// Fast path: block copy precomputed arrays
 					Array.Copy(sep.Positions, 0, positions, start, pts.Length);
 					Array.Copy(sep.Colors, 0, colors, start, pts.Length);
+
+					// Copy or fill depth array
+					if (sep.Depth != null && sep.Depth.Length == pts.Length)
+					{
+						Array.Copy(sep.Depth, 0, depths, start, pts.Length);
+					}
+					else
+					{
+						// Fill with node depth if not precomputed
+						for (int k = 0; k < pts.Length; k++)
+						{
+							depths[start + k] = nodeDepth;
+						}
+					}
 
 					if (includeExtras && dimsOrdered != null && extraArrays != null && sep.ExtraDimensionArrays != null)
 					{
@@ -604,6 +675,8 @@ namespace Copc.Cache
 					float b = p.Blue ?? 1.0f;
 					colors[dstIndex] = new Stride.Core.Mathematics.Vector4(r, g, b, 1.0f);
 
+					depths[dstIndex] = nodeDepth;
+
 					if (includeExtras && p.ExtraBytes != null && p.ExtraBytes.Length > 0 && dimsOrdered != null && extraArrays != null)
 					{
 						int offset = 0;
@@ -629,8 +702,10 @@ namespace Copc.Cache
 			{
 				Positions = positions,
 				Colors = colors,
+				Depth = depths,
 				ExtraDimensionArrays = extraArrays
 			};
+			data.AddMemoryPressure();
 
 			cachedStrideData = data;
 			strideCacheDirty = false;
@@ -680,6 +755,7 @@ namespace Copc.Cache
 
 			var positions = new Stride.Core.Mathematics.Vector4[totalPoints];
 			var colors = new Stride.Core.Mathematics.Vector4[totalPoints];
+			var depths = new int[totalPoints];
 
 			Dictionary<string, float[]>? extraArrays = null;
 			List<ExtraDimension>? dimsOrdered = null;
@@ -708,12 +784,28 @@ namespace Copc.Cache
 				if (pts == null || pts.Length == 0) return;
 				int start = nodeOffsets[i];
 				var sep = nodeSeparated[i];
+				var node = nodeList[i];
+				int nodeDepth = node.Key.D;
 
 				if (sep != null && sep.Positions != null && sep.Positions.Length == pts.Length)
 				{
 					// Fast path: block copy the precomputed arrays
 					Array.Copy(sep.Positions, 0, positions, start, pts.Length);
 					Array.Copy(sep.Colors, 0, colors, start, pts.Length);
+
+					// Copy or fill depth array
+					if (sep.Depth != null && sep.Depth.Length == pts.Length)
+					{
+						Array.Copy(sep.Depth, 0, depths, start, pts.Length);
+					}
+					else
+					{
+						// Fill with node depth if not precomputed
+						for (int k = 0; k < pts.Length; k++)
+						{
+							depths[start + k] = nodeDepth;
+						}
+					}
 
 					if (includeExtras && dimsOrdered != null && extraArrays != null && sep.ExtraDimensionArrays != null)
 					{
@@ -747,6 +839,8 @@ namespace Copc.Cache
 					float b = p.Blue ?? 1.0f;
 					colors[dstIndex] = new Stride.Core.Mathematics.Vector4(r, g, b, 1.0f);
 
+					depths[dstIndex] = nodeDepth;
+
 					if (includeExtras && p.ExtraBytes != null && p.ExtraBytes.Length > 0 && dimsOrdered != null && extraArrays != null)
 					{
 						int offset = 0;
@@ -768,12 +862,15 @@ namespace Copc.Cache
 				}
 			});
 
-			return new StrideCacheData
+			var result = new StrideCacheData
 			{
 				Positions = positions,
 				Colors = colors,
+				Depth = depths,
 				ExtraDimensionArrays = extraArrays
 			};
+			result.AddMemoryPressure();
+			return result;
 		}
 
         /// <summary>
@@ -803,6 +900,7 @@ namespace Copc.Cache
 			long size = 0;
 			if (data.Positions != null) size += 24 + (long)data.Positions.Length * sizeof(float) * 4;
 			if (data.Colors != null) size += 24 + (long)data.Colors.Length * sizeof(float) * 4;
+			if (data.Depth != null) size += 24 + (long)data.Depth.Length * sizeof(int);
 			if (data.ExtraDimensionArrays != null)
 			{
 				foreach (var kvp in data.ExtraDimensionArrays)
@@ -811,6 +909,38 @@ namespace Copc.Cache
 				}
 			}
 			return size;
+		}
+
+		/// <summary>
+		/// Disposes the cache and releases all memory.
+		/// </summary>
+		public void Dispose()
+		{
+			if (disposed)
+				return;
+
+			// Clear all cached data and dispose separated data
+			foreach (var node in lruList)
+			{
+				node.Points = Array.Empty<CopcPoint>();
+				node.Separated?.Dispose();
+				node.Separated = null;
+			}
+
+			cache.Clear();
+			lruList.Clear();
+			cachedStrideData?.Dispose();
+			cachedStrideData = null;
+
+			// Clear scratch lists
+			allPoints.Clear();
+			nodesToLoadScratch.Clear();
+			allStridePointsScratch.Clear();
+
+			// Release GC memory pressure
+			GC.RemoveMemoryPressure(maxMemoryBytes);
+
+			disposed = true;
 		}
     }
 
