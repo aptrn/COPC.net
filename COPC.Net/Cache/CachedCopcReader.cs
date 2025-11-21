@@ -425,9 +425,10 @@ namespace Copc.Cache
 			// Pre-allocate
 			var positions = new StrideVector4[pointCount];
 			var colors = new StrideVector4[pointCount];
+			var depths = new int[pointCount];
 
 			// Inform GC about memory pressure from these large allocations
-			long arrayMemoryPressure = (long)pointCount * sizeof(float) * 4 * 2; // positions + colors
+			long arrayMemoryPressure = (long)pointCount * sizeof(float) * 4 * 2 + (long)pointCount * sizeof(int); // positions + colors + depths
 			GC.AddMemoryPressure(arrayMemoryPressure);
 
 			Dictionary<string, float[]>? extraArrays = null;
@@ -470,6 +471,8 @@ namespace Copc.Cache
 				decompressor.Close();
 				decompressor.Open(pointFormat, pointSize, compressedData);
 			}
+
+			int nodeDepth = node.Key.D;
 
 			for (int i = 0; i < pointCount; i++)
 			{
@@ -531,6 +534,8 @@ namespace Copc.Cache
 						throw new NotImplementedException($"Point format {pointFormat} decoding not implemented for separated path.");
 				}
 
+				depths[i] = nodeDepth;
+
 				if (includeExtras && extraArrays != null)
 				{
 					int offset = standardSize;
@@ -556,6 +561,7 @@ namespace Copc.Cache
 			{
 				Positions = positions,
 				Colors = colors,
+				Depth = depths,
 				ExtraDimensionArrays = extraArrays,
 				MemoryPressure = arrayMemoryPressure
 			};

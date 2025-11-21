@@ -123,6 +123,13 @@ namespace Copc.Cache
         public Vector4[]? Colors { get; set; }
 
         /// <summary>
+        /// Depth index array storing the octree depth level for each point.
+        /// Each element corresponds to the depth (D value from VoxelKey) of the node that the point came from.
+        /// This allows reconstruction of which depth level each point corresponds to.
+        /// </summary>
+        public int[]? Depth { get; set; }
+
+        /// <summary>
         /// Extra dimension arrays [dimension_name -> float32[num_points * num_components]]
         /// For scalar_* fields, each array contains one float per point.
         /// For vector fields, each array contains N floats per point (where N is component count).
@@ -235,6 +242,8 @@ namespace Copc.Cache
                 pressure += (long)Positions.Length * sizeof(float) * 4;
             if (Colors != null)
                 pressure += (long)Colors.Length * sizeof(float) * 4;
+            if (Depth != null)
+                pressure += (long)Depth.Length * sizeof(int);
             if (ExtraDimensionArrays != null)
             {
                 foreach (var arr in ExtraDimensionArrays.Values)
@@ -267,6 +276,7 @@ namespace Copc.Cache
             Points = Array.Empty<StridePoint>();
             Positions = null;
             Colors = null;
+            Depth = null;
             ExtraDimensionArrays?.Clear();
             ExtraDimensionArrays = null;
 
@@ -289,14 +299,20 @@ namespace Copc.Cache
 		/// and without per-point dictionary allocations. Optionally include only a subset
 		/// of extra-dimension names (pass null to include all).
 		/// </summary>
+		/// <param name="copcPoints">Points to convert</param>
+		/// <param name="extraDimDefinitions">Optional extra dimension definitions</param>
+		/// <param name="includeExtraDimensionNames">Optional filter for extra dimensions to include</param>
+		/// <param name="depth">Optional depth value to assign to all points (from Node.Key.D)</param>
 		public static StrideCacheData BuildSeparatedFromCopcPoints(
 			CopcPoint[] copcPoints,
 			List<ExtraDimension>? extraDimDefinitions = null,
-			HashSet<string>? includeExtraDimensionNames = null)
+			HashSet<string>? includeExtraDimensionNames = null,
+			int? depth = null)
 		{
 			int count = copcPoints?.Length ?? 0;
 			var positions = new Vector4[count];
 			var colors = new Vector4[count];
+			var depths = depth.HasValue ? new int[count] : null;
 
 			Dictionary<string, float[]>? extraArrays = null;
 			List<ExtraDimension>? dimsOrdered = null;
@@ -331,6 +347,11 @@ namespace Copc.Cache
 				float b = p.Blue ?? 1.0f;
 				colors[i] = new Vector4(r, g, b, 1.0f);
 
+				if (depths != null && depth.HasValue)
+				{
+					depths[i] = depth.Value;
+				}
+
 				if (includeExtras && p.ExtraBytes != null && p.ExtraBytes.Length > 0 && dimsOrdered != null && extraArrays != null)
 				{
 					int offset = 0;
@@ -356,6 +377,7 @@ namespace Copc.Cache
 			{
 				Positions = positions,
 				Colors = colors,
+				Depth = depths,
 				ExtraDimensionArrays = extraArrays
 			};
 			result.AddMemoryPressure();
