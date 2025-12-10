@@ -347,102 +347,147 @@ namespace Copc.Cache
             cache.ResetVersion();
         }
 
-		/// <summary>
-		/// Updates the cache by decoding nodes directly into separated arrays (no CopcPoint allocation).
-		/// Optionally restrict which extra dimensions to include and optionally store separated-only in cache.
-		/// </summary>
-		public void UpdateSeparated(IEnumerable<Node> nodes, string[]? includeExtraDimensionNames = null, bool storeSeparatedOnly = false)
+	/// <summary>
+	/// Updates the cache by decoding nodes directly into separated arrays (no CopcPoint allocation).
+	/// Optionally restrict which extra dimensions to include and optionally store separated-only in cache.
+	/// </summary>
+	public void UpdateSeparated(IEnumerable<Node> nodes, string[]? includeExtraDimensionNames = null, bool storeSeparatedOnly = false)
+	{
+		UpdateSeparated(nodes, includeExtraDimensionNames, storeSeparatedOnly, degreeOfParallelism: Environment.ProcessorCount);
+	}
+
+	/// <summary>
+	/// Updates the cache by decoding nodes directly into separated arrays (no CopcPoint allocation).
+	/// Optionally restrict which extra dimensions to include and optionally store separated-only in cache.
+	/// This version supports parallel decompression for improved performance.
+	/// </summary>
+	/// <param name="nodes">Nodes to update</param>
+	/// <param name="includeExtraDimensionNames">Optional array of extra dimension names to include (null = all)</param>
+	/// <param name="storeSeparatedOnly">If true, only stores separated arrays without CopcPoint[] data</param>
+	/// <param name="degreeOfParallelism">Number of threads to use for decompression (default: processor count)</param>
+	public void UpdateSeparated(IEnumerable<Node> nodes, string[]? includeExtraDimensionNames, bool storeSeparatedOnly, int degreeOfParallelism)
+	{
+		if (nodes == null) throw new ArgumentNullException(nameof(nodes));
+
+		// Determine which nodes actually need loading
+		nodesToLoadScratch.Clear();
+		foreach (var node in nodes)
 		{
-			if (nodes == null) throw new ArgumentNullException(nameof(nodes));
-
-			// Determine which nodes actually need loading
-			nodesToLoadScratch.Clear();
-			foreach (var node in nodes)
+			if (!cache.Contains(node.Key))
 			{
-				if (!cache.Contains(node.Key))
+				nodesToLoadScratch.Add(node);
+			}
+		}
+
+		if (nodesToLoadScratch.Count == 0)
+			return;
+
+		// Step 1: Read compressed chunks sequentially (file I/O is not thread-safe)
+		var compressed = compressedScratch;
+		compressed.Clear();
+		foreach (var node in nodesToLoadScratch)
+		{
+			try
+			{
+				if (node.PointCount == 0 || node.ByteSize == 0)
+					continue;
+
+				var data = reader.GetPointDataCompressed(node);
+				if (data != null && data.Length > 0)
 				{
-					nodesToLoadScratch.Add(node);
+					compressed.Add((node, data));
 				}
 			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"Warning: Failed to read compressed data for node {node.Key}: {ex.Message}");
+			}
+		}
 
-			if (nodesToLoadScratch.Count == 0)
-				return;
+		if (compressed.Count == 0)
+			return;
 
-			// Step 1: Read compressed chunks sequentially
-			var compressed = compressedScratch;
-			compressed.Clear();
-			foreach (var node in nodesToLoadScratch)
+		var header = reader.Config.LasHeader;
+		var extras = reader.Config.ExtraDimensions;
+		HashSet<string>? include = null;
+		if (includeExtraDimensionNames != null && includeExtraDimensionNames.Length > 0)
+			include = new HashSet<string>(includeExtraDimensionNames);
+
+		// Step 2: Decompress in parallel - each decompressor is independent
+		var results = new (Node node, SeparatedNodeData? separated, CopcPoint[]? points)[compressed.Count];
+		
+		var parallelOptions = new ParallelOptions 
+		{ 
+			MaxDegreeOfParallelism = Math.Max(1, degreeOfParallelism) 
+		};
+
+		Parallel.For(0, compressed.Count, parallelOptions, i =>
+		{
+			var item = compressed[i];
+			try
+			{
+				var separated = DecompressNodeToSeparated(item.node, item.data, header, extras, include);
+				
+				CopcPoint[]? points = null;
+				if (!storeSeparatedOnly)
+				{
+					// If we also want CopcPoint[] for compatibility, build via existing path once
+					points = LazDecompressor.DecompressChunk(
+						header.BasePointFormat,
+						header.PointDataRecordLength,
+						item.data,
+						item.node.PointCount,
+						header,
+						extras
+					);
+				}
+				
+				results[i] = (item.node, separated, points);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"Warning: Failed to decompress (separated) node {item.node.Key}: {ex.Message}");
+				results[i] = (item.node, null, null);
+			}
+		});
+
+		// Step 3: Insert into cache sequentially (cache structure must remain consistent)
+		bool anyAdded = false;
+		for (int i = 0; i < results.Length; i++)
+		{
+			var (node, separated, points) = results[i];
+			if (separated != null)
 			{
 				try
 				{
-					if (node.PointCount == 0 || node.ByteSize == 0)
-						continue;
-
-					var data = reader.GetPointDataCompressed(node);
-					if (data != null && data.Length > 0)
-					{
-						compressed.Add((node, data));
-					}
-				}
-				catch (Exception ex)
-				{
-					Console.WriteLine($"Warning: Failed to read compressed data for node {node.Key}: {ex.Message}");
-				}
-			}
-
-			if (compressed.Count == 0)
-				return;
-
-			var header = reader.Config.LasHeader;
-			var extras = reader.Config.ExtraDimensions;
-			HashSet<string>? include = null;
-			if (includeExtraDimensionNames != null && includeExtraDimensionNames.Length > 0)
-				include = new HashSet<string>(includeExtraDimensionNames);
-
-			// Step 2: Decompress sequentially into separated arrays
-			bool anyAdded = false;
-			for (int i = 0; i < compressed.Count; i++)
-			{
-				var item = compressed[i];
-				try
-				{
-					var separated = DecompressNodeToSeparated(item.node, item.data, header, extras, include);
 					if (storeSeparatedOnly)
 					{
-						cache.PutSeparatedOnly(item.node.Key, separated);
+						cache.PutSeparatedOnly(node.Key, separated);
 						anyAdded = true;
 					}
-					else
+					else if (points != null)
 					{
-						// If we also want CopcPoint[] for compatibility, build via existing path once
-						var points = LazDecompressor.DecompressChunk(
-							header.BasePointFormat,
-							header.PointDataRecordLength,
-							item.data,
-							item.node.PointCount,
-							header,
-							extras
-						);
-						cache.Put(item.node.Key, points); // Put() will attach separated automatically if configured
+						cache.Put(node.Key, points); // Put() will attach separated automatically if configured
 						anyAdded = true;
 					}
 				}
 				catch (Exception ex)
 				{
-					Console.WriteLine($"Warning: Failed to decompress (separated) node {item.node.Key}: {ex.Message}");
+					Console.WriteLine($"Warning: Failed to cache node {node.Key}: {ex.Message}");
 				}
 			}
-
-			// Increment version once for this batch update
-			if (anyAdded)
-			{
-				cache.IncrementVersion();
-			}
-
-			// Clear scratch lists to release references
-			nodesToLoadScratch.Clear();
-			compressedScratch.Clear();
 		}
+
+		// Increment version once for this batch update
+		if (anyAdded)
+		{
+			cache.IncrementVersion();
+		}
+
+		// Clear scratch lists to release references
+		nodesToLoadScratch.Clear();
+		compressedScratch.Clear();
+	}
 
 		private static SeparatedNodeData DecompressNodeToSeparated(Node node, byte[] compressedData, LasHeader header, List<ExtraDimension>? extraDimensions, HashSet<string>? includeNames)
 		{
