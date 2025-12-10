@@ -121,6 +121,7 @@ namespace Copc.Cache
         /// </summary>
         public Vector4[]? Positions { get; set; }
         public Vector4[]? Colors { get; set; }
+        public Vector4[]? Normals { get; set; }
 
         /// <summary>
         /// Depth index array storing the octree depth level for each point.
@@ -242,6 +243,8 @@ namespace Copc.Cache
                 pressure += (long)Positions.Length * sizeof(float) * 4;
             if (Colors != null)
                 pressure += (long)Colors.Length * sizeof(float) * 4;
+            if (Normals != null)
+                pressure += (long)Normals.Length * sizeof(float) * 4;
             if (Depth != null)
                 pressure += (long)Depth.Length * sizeof(int);
             if (ExtraDimensionArrays != null)
@@ -276,6 +279,7 @@ namespace Copc.Cache
             Points = Array.Empty<StridePoint>();
             Positions = null;
             Colors = null;
+            Normals = null;
             Depth = null;
             ExtraDimensionArrays?.Clear();
             ExtraDimensionArrays = null;
@@ -312,7 +316,52 @@ namespace Copc.Cache
 			int count = copcPoints?.Length ?? 0;
 			var positions = new Vector4[count];
 			var colors = new Vector4[count];
+			var normals = new Vector4[count];
 			var depths = depth.HasValue ? new int[count] : null;
+
+			// Find normal dimensions
+			ExtraDimension? normalXDim = null;
+			ExtraDimension? normalYDim = null;
+			ExtraDimension? normalZDim = null;
+			int normalXOffset = 0;
+			int normalYOffset = 0;
+			int normalZOffset = 0;
+			bool hasNormals = false;
+
+			if (extraDimDefinitions != null && extraDimDefinitions.Count > 0)
+			{
+				int offset = 0;
+				foreach (var dim in extraDimDefinitions)
+				{
+					int dimSize = dim.GetDataSize() * dim.GetComponentCount();
+					
+					// Check for normal dimension names (case-insensitive)
+					string dimNameLower = dim.Name.ToLowerInvariant().Replace(" ", "");
+					if (dimNameLower == "normalx" || dimNameLower == "nx")
+					{
+						normalXDim = dim;
+						normalXOffset = offset;
+						hasNormals = true;
+					}
+					else if (dimNameLower == "normaly" || dimNameLower == "ny")
+					{
+						normalYDim = dim;
+						normalYOffset = offset;
+						hasNormals = true;
+					}
+					else if (dimNameLower == "normalz" || dimNameLower == "nz")
+					{
+						normalZDim = dim;
+						normalZOffset = offset;
+						hasNormals = true;
+					}
+					
+					offset += dimSize;
+				}
+				
+				// Only consider normals valid if all three components are present
+				hasNormals = hasNormals && normalXDim != null && normalYDim != null && normalZDim != null;
+			}
 
 			Dictionary<string, float[]>? extraArrays = null;
 			List<ExtraDimension>? dimsOrdered = null;
@@ -339,13 +388,42 @@ namespace Copc.Cache
 
 			for (int i = 0; i < count; i++)
 			{
-				var p = copcPoints[i];
+				var p = copcPoints![i];
 				positions[i] = new Vector4((float)p.X, (float)p.Y, (float)p.Z, 1.0f);
 
 				float r = p.Red ?? 1.0f;
 				float g = p.Green ?? 1.0f;
 				float b = p.Blue ?? 1.0f;
 				colors[i] = new Vector4(r, g, b, 1.0f);
+
+				// Extract normals if available
+				if (hasNormals && p.ExtraBytes != null && p.ExtraBytes.Length > 0)
+				{
+					float nx = 0f, ny = 0f, nz = 0f;
+					
+					if (normalXDim != null)
+					{
+						var xValues = normalXDim.ExtractAsFloat32(p.ExtraBytes, normalXOffset);
+						nx = xValues.Length > 0 ? xValues[0] : 0f;
+					}
+					if (normalYDim != null)
+					{
+						var yValues = normalYDim.ExtractAsFloat32(p.ExtraBytes, normalYOffset);
+						ny = yValues.Length > 0 ? yValues[0] : 0f;
+					}
+					if (normalZDim != null)
+					{
+						var zValues = normalZDim.ExtractAsFloat32(p.ExtraBytes, normalZOffset);
+						nz = zValues.Length > 0 ? zValues[0] : 0f;
+					}
+					
+					normals[i] = new Vector4(nx, ny, nz, 0.0f);
+				}
+				else
+				{
+					// No normals available, set to zero vector
+					normals[i] = new Vector4(0f, 0f, 0f, 0f);
+				}
 
 				if (depths != null && depth.HasValue)
 				{
@@ -377,6 +455,7 @@ namespace Copc.Cache
 			{
 				Positions = positions,
 				Colors = colors,
+				Normals = hasNormals ? normals : Array.Empty<Vector4>(),
 				Depth = depths,
 				ExtraDimensionArrays = extraArrays
 			};

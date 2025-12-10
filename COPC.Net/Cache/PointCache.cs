@@ -45,6 +45,7 @@ namespace Copc.Cache
 	{
 		public StrideVector4[] Positions { get; set; } = Array.Empty<StrideVector4>();
 		public StrideVector4[] Colors { get; set; } = Array.Empty<StrideVector4>();
+		public StrideVector4[] Normals { get; set; } = Array.Empty<StrideVector4>();
 		public int[]? Depth { get; set; }
 		public Dictionary<string, float[]>? ExtraDimensionArrays { get; set; }
 		public int Count => Positions?.Length ?? 0;
@@ -64,6 +65,7 @@ namespace Copc.Cache
 
 			Positions = Array.Empty<StrideVector4>();
 			Colors = Array.Empty<StrideVector4>();
+			Normals = Array.Empty<StrideVector4>();
 			Depth = null;
 			ExtraDimensionArrays?.Clear();
 			ExtraDimensionArrays = null;
@@ -274,6 +276,7 @@ namespace Copc.Cache
 					{
 						Positions = sepData.Positions ?? Array.Empty<StrideVector4>(),
 						Colors = sepData.Colors ?? Array.Empty<StrideVector4>(),
+						Normals = sepData.Normals ?? Array.Empty<StrideVector4>(),
 						Depth = sepData.Depth,
 						ExtraDimensionArrays = sepData.ExtraDimensionArrays
 					};
@@ -300,7 +303,7 @@ namespace Copc.Cache
 			// Remove existing entry if present
 			if (cache.TryGetValue(key, out var existingNode))
 			{
-				currentMemoryBytes -= (existingNode.Value.MemorySize + existingNode.Value.SeparatedMemorySize);
+				currentMemoryBytes -= (existingNode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 Value.MemorySize + existingNode.Value.SeparatedMemorySize);
 				existingNode.Value.Separated?.Dispose();
 				lruList.Remove(existingNode);
 				cache.Remove(key);
@@ -311,6 +314,7 @@ namespace Copc.Cache
 			{
 				Positions = separated.Positions,
 				Colors = separated.Colors,
+				Normals = separated.Normals,
 				Depth = separated.Depth,
 				ExtraDimensionArrays = separated.ExtraDimensionArrays
 			};
@@ -590,6 +594,7 @@ namespace Copc.Cache
 			// Allocate destination arrays
 			var positions = new Stride.Core.Mathematics.Vector4[totalPoints];
 			var colors = new Stride.Core.Mathematics.Vector4[totalPoints];
+			var normals = new Stride.Core.Mathematics.Vector4[totalPoints];
 			var depths = new int[totalPoints];
 
 			Dictionary<string, float[]>? extraArrays = null;
@@ -628,6 +633,10 @@ namespace Copc.Cache
 					// Fast path: block copy precomputed arrays
 					Array.Copy(sep.Positions, 0, positions, start, pts.Length);
 					Array.Copy(sep.Colors, 0, colors, start, pts.Length);
+					if (sep.Normals != null && sep.Normals.Length == pts.Length)
+					{
+						Array.Copy(sep.Normals, 0, normals, start, pts.Length);
+					}
 
 					// Copy or fill depth array
 					if (sep.Depth != null && sep.Depth.Length == pts.Length)
@@ -702,6 +711,7 @@ namespace Copc.Cache
 			{
 				Positions = positions,
 				Colors = colors,
+				Normals = normals,
 				Depth = depths,
 				ExtraDimensionArrays = extraArrays
 			};
@@ -755,6 +765,7 @@ namespace Copc.Cache
 
 			var positions = new Stride.Core.Mathematics.Vector4[totalPoints];
 			var colors = new Stride.Core.Mathematics.Vector4[totalPoints];
+			var normals = new Stride.Core.Mathematics.Vector4[totalPoints];
 			var depths = new int[totalPoints];
 
 			Dictionary<string, float[]>? extraArrays = null;
@@ -792,6 +803,10 @@ namespace Copc.Cache
 					// Fast path: block copy the precomputed arrays
 					Array.Copy(sep.Positions, 0, positions, start, pts.Length);
 					Array.Copy(sep.Colors, 0, colors, start, pts.Length);
+					if (sep.Normals != null && sep.Normals.Length == pts.Length)
+					{
+						Array.Copy(sep.Normals, 0, normals, start, pts.Length);
+					}
 
 					// Copy or fill depth array
 					if (sep.Depth != null && sep.Depth.Length == pts.Length)
@@ -866,6 +881,7 @@ namespace Copc.Cache
 			{
 				Positions = positions,
 				Colors = colors,
+				Normals = normals,
 				Depth = depths,
 				ExtraDimensionArrays = extraArrays
 			};
@@ -900,6 +916,7 @@ namespace Copc.Cache
 			long size = 0;
 			if (data.Positions != null) size += 24 + (long)data.Positions.Length * sizeof(float) * 4;
 			if (data.Colors != null) size += 24 + (long)data.Colors.Length * sizeof(float) * 4;
+			if (data.Normals != null) size += 24 + (long)data.Normals.Length * sizeof(float) * 4;
 			if (data.Depth != null) size += 24 + (long)data.Depth.Length * sizeof(int);
 			if (data.ExtraDimensionArrays != null)
 			{
