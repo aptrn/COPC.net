@@ -64,26 +64,26 @@ namespace Copc.Examples
             // 1) Preset: Bounding Box
             Console.WriteLine("--- Preset: Bounding Box ---");
             var boxOptions = TraversalPresets.Box(testBox, resolution: sampleResolution, continueToChildren: true);
-            var boxNodes = reader.TraverseNodes(boxOptions);
-            PrintNodeSummary(reader, boxNodes);
+            var boxResult = reader.TraverseNodes(boxOptions);
+            PrintNodeSummary(reader, boxResult.ViewedNodes);
 
             // 2) Preset: Sphere (radius)
             Console.WriteLine("--- Preset: Sphere (Radius) ---");
             var sphereOptions = TraversalPresets.Sphere(testSphere, resolution: sampleResolution, continueToChildren: true);
-            var sphereNodes = reader.TraverseNodes(sphereOptions);
-            PrintNodeSummary(reader, sphereNodes);
+            var sphereResult = reader.TraverseNodes(sphereOptions);
+            PrintNodeSummary(reader, sphereResult.ViewedNodes);
 
             // 3) Preset: Distance From Point (same as sphere)
             Console.WriteLine("--- Preset: Distance From Point ---");
             var distOptions = TraversalPresets.DistanceFromPoint(center, sphereRadius, resolution: sampleResolution, continueToChildren: true);
-            var distNodes = reader.TraverseNodes(distOptions);
-            PrintNodeSummary(reader, distNodes);
+            var distResult = reader.TraverseNodes(distOptions);
+            PrintNodeSummary(reader, distResult.ViewedNodes);
 
             // 4) Preset: Frustum
             Console.WriteLine("--- Preset: Frustum ---");
             var frustumOptions = TraversalPresets.Frustum(testFrustum, resolution: sampleResolution, continueToChildren: true);
-            var frustumNodes = reader.TraverseNodes(frustumOptions);
-            PrintNodeSummary(reader, frustumNodes);
+            var frustumResult = reader.TraverseNodes(frustumOptions);
+            PrintNodeSummary(reader, frustumResult.ViewedNodes);
 
             // 5) Preset: Frustum with distance-based adaptive resolution
             Console.WriteLine("--- Preset: Frustum + Camera Distance Adaptive Resolution ---");
@@ -94,8 +94,8 @@ namespace Copc.Examples
 
             var frustumCameraOptions = TraversalPresets.FrustumWithDistanceResolution(
                 testFrustum, camera, camSlope, camMinRes, continueToChildren: true);
-            var frustumCameraNodes = reader.TraverseNodes(frustumCameraOptions);
-            PrintNodeSummary(reader, frustumCameraNodes);
+            var frustumCameraResult = reader.TraverseNodes(frustumCameraOptions);
+            PrintNodeSummary(reader, frustumCameraResult.ViewedNodes);
 
             // Custom delegate behaviors
             // A) Vertical slab selector: accept nodes within upper half Z slab (no resolution filter)
@@ -105,11 +105,17 @@ namespace Copc.Examples
             );
             var slabOptions = new TraversalOptions
             {
-                SpatialPredicate = ctx => ctx.Bounds.Intersects(upperSlab),
-                ResolutionPredicate = _ => (true, true) // accept all nodes and continue to children
+                TraversalPredicate = ctx =>
+                {
+                    // Spatial check - if fails, prune entire subtree
+                    if (!ctx.Bounds.Intersects(upperSlab))
+                        return (false, false, false);
+                    // Accept all nodes that pass spatial check and continue to children
+                    return (true, true, true);
+                }
             };
-            var slabNodes = reader.TraverseNodes(slabOptions);
-            PrintNodeSummary(reader, slabNodes);
+            var slabResult = reader.TraverseNodes(slabOptions);
+            PrintNodeSummary(reader, slabResult.ViewedNodes);
 
             // B) Adaptive resolution by distance to focus point (near = fine, far = coarse)
             Console.WriteLine("--- Custom: Adaptive Resolution by Distance ---");
@@ -119,9 +125,9 @@ namespace Copc.Examples
 
             var adaptiveOptions = new TraversalOptions
             {
-                SpatialPredicate = _ => true, // no spatial pruning
-                ResolutionPredicate = ctx =>
+                TraversalPredicate = ctx =>
                 {
+                    // No spatial pruning - accept all spatially
                     var sb = ctx.Bounds.ToStride();
                     var c = (sb.Minimum + sb.Maximum) * 0.5f;
                     double dx = c.X - focus.X;
@@ -131,11 +137,11 @@ namespace Copc.Examples
                     double desiredResolution = Math.Max(minResolution, slope * dist);
                     bool accept = ctx.NodeResolution <= desiredResolution;
                     // If resolution is fine enough, accept and stop; otherwise continue to finer LODs
-                    return (accept, !accept);
+                    return (accept, accept, !accept);
                 }
             };
-            var adaptiveNodes = reader.TraverseNodes(adaptiveOptions);
-            PrintNodeSummary(reader, adaptiveNodes);
+            var adaptiveResult = reader.TraverseNodes(adaptiveOptions);
+            PrintNodeSummary(reader, adaptiveResult.ViewedNodes);
 
             // C) Camera W-based LOD (perspective depth with aggressive falloff)
             Console.WriteLine("--- Custom: Camera W-based Perspective LOD ---");
@@ -148,9 +154,9 @@ namespace Copc.Examples
             
             var cameraWOptions = new TraversalOptions
             {
-                SpatialPredicate = _ => true, // no spatial pruning
-                ResolutionPredicate = ctx =>
+                TraversalPredicate = ctx =>
                 {
+                    // No spatial pruning
                     var sb = ctx.Bounds.ToStride();
                     var nodeCenter = (sb.Minimum + sb.Maximum) * 0.5f;
                     
@@ -173,11 +179,11 @@ namespace Copc.Examples
                     bool accept = ctx.NodeResolution <= desiredResolution;
                     
                     // If resolution is fine enough, accept and stop; otherwise continue to finer LODs
-                    return (accept, !accept);
+                    return (accept, accept, !accept);
                 }
             };
-            var cameraWNodes = reader.TraverseNodes(cameraWOptions);
-            PrintNodeSummary(reader, cameraWNodes);
+            var cameraWResult = reader.TraverseNodes(cameraWOptions);
+            PrintNodeSummary(reader, cameraWResult.ViewedNodes);
             
             // Print some diagnostics to show the LOD behavior
             Console.WriteLine("LOD Parameters:");

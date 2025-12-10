@@ -423,21 +423,21 @@ namespace Copc.IO
         }
 
         /// <summary>
-        /// Generic traversal over the COPC hierarchy using delegate-based spatial and resolution checks.
-        /// See Trasversal.md: spatial check -> resolution check -> keep node; continue traversing children until no more valid entries.
+        /// Generic traversal over the COPC hierarchy using a single delegate that controls acceptance, display, and continuation.
+        /// Returns two lists: cached nodes (approved) and viewed nodes (to be displayed).
         /// </summary>
-        /// <param name="options">Traversal options including spatial predicate and desired resolution selector.</param>
-        /// <returns>List of nodes accepted by the traversal.</returns>
-        public List<Node> TraverseNodes(TraversalOptions options)
+        /// <param name="options">Traversal options including the traversal predicate.</param>
+        /// <returns>TraversalResult containing cached nodes and viewed nodes.</returns>
+        public TraversalResult TraverseNodes(TraversalOptions options)
         {
-            var results = new List<Node>();
+            var result = new TraversalResult();
             var stoppedAtKeys = new HashSet<string>(); // Keys where we stopped (continueToChildren = false)
             var rootPage = LoadRootHierarchyPage();
-            TraversePage(rootPage, options, results, stoppedAtKeys);
-            return results;
+            TraversePage(rootPage, options, result, stoppedAtKeys);
+            return result;
         }
 
-        private void TraversePage(Page page, TraversalOptions options, List<Node> results, HashSet<string> stoppedAtKeys)
+        private void TraversePage(Page page, TraversalOptions options, TraversalResult result, HashSet<string> stoppedAtKeys)
         {
             if (!page.Loaded)
                 LoadHierarchyPage(page);
@@ -463,19 +463,23 @@ namespace Copc.IO
                     Config.CopcInfo
                 );
 
-                // Spatial pruning
-                if (!options.SpatialPredicate(ctx))
-                    continue;
-
-                // Resolution decision - returns (accept, continueToChildren)
-                var (accept, continueToChildren) = options.ResolutionPredicate(ctx);
+                // Get traversal decision - returns (isApproved, shouldDisplay, continueToChildren)
+                var (isApproved, shouldDisplay, continueToChildren) = options.TraversalPredicate(ctx);
 
                 if (isNode)
                 {
-                    // Add node to results if accepted
-                    if (accept)
+                    var node = (Node)entry;
+                    
+                    // Add node to cached nodes if approved
+                    if (isApproved)
                     {
-                        results.Add((Node)entry);
+                        result.CachedNodes.Add(node);
+                    }
+                    
+                    // Add node to viewed nodes if should display
+                    if (shouldDisplay)
+                    {
+                        result.ViewedNodes.Add(node);
                     }
                     
                     // If continueToChildren is false, mark this key as stopped
@@ -494,7 +498,7 @@ namespace Copc.IO
                             LoadHierarchyPage(childPage);
 
                         // Recurse into child page
-                        TraversePage(childPage, options, results, stoppedAtKeys);
+                        TraversePage(childPage, options, result, stoppedAtKeys);
                     }
                 }
             }

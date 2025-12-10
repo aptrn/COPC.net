@@ -222,9 +222,10 @@ namespace Copc.Cache
         }
 
         /// <summary>
-        /// Traverses the hierarchy using generic spatial and resolution delegates.
+        /// Traverses the hierarchy using a single delegate that controls acceptance, display, and continuation.
+        /// Returns two lists: cached nodes (approved) and viewed nodes (to be displayed).
         /// </summary>
-        public List<Node> TraverseNodes(TraversalOptions options)
+        public TraversalResult TraverseNodes(TraversalOptions options)
         {
             return reader.TraverseNodes(options);
         }

@@ -20,16 +20,17 @@ namespace Copc.Hierarchy
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx =>
+                TraversalPredicate = ctx =>
                 {
+                    // Spatial check - if fails, prune entire subtree
                     var sb = ctx.Bounds.ToStride();
                     var bext = new BoundingBoxExt(sb.Minimum, sb.Maximum);
-                    return frustum.Contains(ref bext);
-                },
-                ResolutionPredicate = ctx =>
-                {
+                    if (!frustum.Contains(ref bext))
+                        return (false, false, false);
+                    
+                    // Resolution check
                     bool accept = resolution <= 0 || ctx.NodeResolution <= resolution;
-                    return (accept, continueToChildren);
+                    return (accept, accept, continueToChildren);
                 }
             };
         }
@@ -45,11 +46,15 @@ namespace Copc.Hierarchy
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx => ctx.Bounds.Intersects(box),
-                ResolutionPredicate = ctx =>
+                TraversalPredicate = ctx =>
                 {
+                    // Spatial check - if fails, prune entire subtree
+                    if (!ctx.Bounds.Intersects(box))
+                        return (false, false, false);
+                    
+                    // Resolution check
                     bool accept = resolution <= 0 || ctx.NodeResolution <= resolution;
-                    return (accept, continueToChildren);
+                    return (accept, accept, continueToChildren);
                 }
             };
         }
@@ -65,15 +70,16 @@ namespace Copc.Hierarchy
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx =>
+                TraversalPredicate = ctx =>
                 {
+                    // Spatial check - if fails, prune entire subtree
                     var sb = ctx.Bounds.ToStride();
-                    return sphere.Intersects(ref sb);
-                },
-                ResolutionPredicate = ctx =>
-                {
+                    if (!sphere.Intersects(ref sb))
+                        return (false, false, false);
+                    
+                    // Resolution check
                     bool accept = resolution <= 0 || ctx.NodeResolution <= resolution;
-                    return (accept, continueToChildren);
+                    return (accept, accept, continueToChildren);
                 }
             };
         }
@@ -109,15 +115,15 @@ namespace Copc.Hierarchy
         {
             return new TraversalOptions
             {
-                SpatialPredicate = ctx =>
+                TraversalPredicate = ctx =>
                 {
+                    // Spatial check - if fails, prune entire subtree
                     var sb = ctx.Bounds.ToStride();
                     var bext = new BoundingBoxExt(sb.Minimum, sb.Maximum);
-                    return frustum.Contains(ref bext);
-                },
-                ResolutionPredicate = ctx =>
-                {
-                    var sb = ctx.Bounds.ToStride();
+                    if (!frustum.Contains(ref bext))
+                        return (false, false, false);
+                    
+                    // Distance-based resolution check
                     var center = (sb.Minimum + sb.Maximum) * 0.5f;
                     double dx = center.X - viewpoint.X;
                     double dy = center.Y - viewpoint.Y;
@@ -125,7 +131,7 @@ namespace Copc.Hierarchy
                     double dist = System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
                     double desiredResolution = System.Math.Max(minResolution, resolutionSlope * dist);
                     bool accept = ctx.NodeResolution <= desiredResolution;
-                    return (accept, continueToChildren);
+                    return (accept, accept, continueToChildren);
                 }
             };
         }
