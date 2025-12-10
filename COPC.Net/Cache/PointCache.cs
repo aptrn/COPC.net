@@ -96,6 +96,9 @@ namespace Copc.Cache
         private long totalMisses;
         private long totalEvictions;
 
+		// Versioning
+		private int cacheVersion;
+
 		// Cached Stride-format aggregation of all cached points
 		private StrideCacheData? cachedStrideData;
 		private bool strideCacheDirty;
@@ -148,6 +151,27 @@ namespace Copc.Cache
         }
 
         /// <summary>
+        /// Gets the current cache version. This integer increments each time the cache is updated.
+        /// </summary>
+        public int Version => cacheVersion;
+
+        /// <summary>
+        /// Resets the cache version counter to zero.
+        /// </summary>
+        public void ResetVersion()
+        {
+            cacheVersion = 0;
+        }
+
+        /// <summary>
+        /// Increments the cache version by 1. Call this after batch update operations.
+        /// </summary>
+        public void IncrementVersion()
+        {
+            cacheVersion++;
+        }
+
+        /// <summary>
         /// Creates a new point cache with the specified maximum memory size.
         /// </summary>
         /// <param name="maxMemoryBytes">Maximum memory to use for caching (in bytes)</param>
@@ -168,6 +192,7 @@ namespace Copc.Cache
             totalHits = 0;
             totalMisses = 0;
             totalEvictions = 0;
+			cacheVersion = 0;
 
 			cachedStrideData = null;
 			strideCacheDirty = true;
@@ -365,6 +390,7 @@ namespace Copc.Cache
             
             // Add to cache for future use
             Put(node.Key, points);
+            IncrementVersion();
             
             return points;
         }
@@ -399,6 +425,7 @@ namespace Copc.Cache
             }
 
             // Second pass: load uncached nodes
+            bool anyLoaded = false;
             foreach (var node in nodesToLoadScratch)
             {
                 try
@@ -406,12 +433,19 @@ namespace Copc.Cache
                     var points = reader.GetPointsFromNode(node);
                     Put(node.Key, points);
                     allPoints.AddRange(points);
+                    anyLoaded = true;
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Warning: Failed to load node {node.Key}: {ex.Message}");
                     // Continue with other nodes
                 }
+            }
+
+            // Increment version once for this batch load
+            if (anyLoaded)
+            {
+                IncrementVersion();
             }
 
             return allPoints.ToArray();
@@ -442,6 +476,7 @@ namespace Copc.Cache
                 cache.Remove(key);
 				// Content changed
 				strideCacheDirty = true;
+				cacheVersion++;
                 return true;
             }
             return false;
@@ -466,6 +501,7 @@ namespace Copc.Cache
 			cachedStrideData?.Dispose();
 			cachedStrideData = null;
 			strideCacheDirty = true;
+			cacheVersion++;
 
 			// Clear scratch lists
 			allPoints.Clear();
@@ -533,6 +569,7 @@ namespace Copc.Cache
             totalEvictions++;
 			// Content changed
 			strideCacheDirty = true;
+			cacheVersion++;
         }
 
 		/// <summary>

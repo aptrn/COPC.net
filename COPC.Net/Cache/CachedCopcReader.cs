@@ -43,6 +43,11 @@ namespace Copc.Cache
         public CopcConfig Config => reader.Config;
 
         /// <summary>
+        /// Gets the current cache version. This integer increments each time the cache is updated.
+        /// </summary>
+        public int CacheVersion => cache.Version;
+
+        /// <summary>
         /// Creates a new cached COPC reader.
         /// </summary>
         /// <param name="reader">The underlying COPC reader</param>
@@ -179,6 +184,7 @@ namespace Copc.Cache
             }
 
             // Step 3: Put into cache sequentially to keep cache structure consistent
+            bool anyAdded = false;
             for (int i = 0; i < compressed.Count; i++)
             {
                 var node = compressed[i].node;
@@ -186,7 +192,14 @@ namespace Copc.Cache
                 if (points.Length > 0)
                 {
                     cache.Put(node.Key, points);
+                    anyAdded = true;
                 }
+            }
+
+            // Increment version once for this batch update
+            if (anyAdded)
+            {
+                cache.IncrementVersion();
             }
 
             // Clear scratch lists to release references
@@ -326,6 +339,14 @@ namespace Copc.Cache
             return reader.GetNodesAtResolution(resolution);
         }
 
+        /// <summary>
+        /// Resets the cache version counter to zero.
+        /// </summary>
+        public void ResetCacheVersion()
+        {
+            cache.ResetVersion();
+        }
+
 		/// <summary>
 		/// Updates the cache by decoding nodes directly into separated arrays (no CopcPoint allocation).
 		/// Optionally restrict which extra dimensions to include and optionally store separated-only in cache.
@@ -379,6 +400,7 @@ namespace Copc.Cache
 				include = new HashSet<string>(includeExtraDimensionNames);
 
 			// Step 2: Decompress sequentially into separated arrays
+			bool anyAdded = false;
 			for (int i = 0; i < compressed.Count; i++)
 			{
 				var item = compressed[i];
@@ -388,6 +410,7 @@ namespace Copc.Cache
 					if (storeSeparatedOnly)
 					{
 						cache.PutSeparatedOnly(item.node.Key, separated);
+						anyAdded = true;
 					}
 					else
 					{
@@ -401,12 +424,19 @@ namespace Copc.Cache
 							extras
 						);
 						cache.Put(item.node.Key, points); // Put() will attach separated automatically if configured
+						anyAdded = true;
 					}
 				}
 				catch (Exception ex)
 				{
 					Console.WriteLine($"Warning: Failed to decompress (separated) node {item.node.Key}: {ex.Message}");
 				}
+			}
+
+			// Increment version once for this batch update
+			if (anyAdded)
+			{
+				cache.IncrementVersion();
 			}
 
 			// Clear scratch lists to release references
