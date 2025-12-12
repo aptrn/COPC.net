@@ -51,27 +51,94 @@ namespace Copc.Cache
 		public int Count => Positions?.Length ?? 0;
 		internal long MemoryPressure { get; set; }
 		private bool disposed;
+		private bool memoryPressureAdded;
 
-		public void Dispose()
+		/// <summary>
+		/// Adds GC memory pressure for the allocated arrays. Call this once after construction.
+		/// NOTE: For cached objects, DON'T add pressure - cache already tracks memory!
+		/// Only add pressure for temporary/returned objects.
+		/// </summary>
+		internal void AddMemoryPressure()
 		{
-			if (disposed)
+			// DISABLED for vvvv gamma stability
+			// Cache already tracks memory via maxMemoryBytes
+			// Adding GC pressure on top causes double accounting and crashes
+			return;
+			
+			/*
+			if (memoryPressureAdded || disposed)
 				return;
 
-			if (MemoryPressure > 0)
+			long pressure = 0;
+			if (Positions != null && Positions.Length > 0)
+				pressure += (long)Positions.Length * sizeof(float) * 4;
+			if (Colors != null && Colors.Length > 0)
+				pressure += (long)Colors.Length * sizeof(float) * 4;
+			if (Normals != null && Normals.Length > 0)
+				pressure += (long)Normals.Length * sizeof(float) * 4;
+			if (Depth != null && Depth.Length > 0)
+				pressure += (long)Depth.Length * sizeof(int);
+			if (ExtraDimensionArrays != null)
 			{
-				GC.RemoveMemoryPressure(MemoryPressure);
-				MemoryPressure = 0;
+				foreach (var arr in ExtraDimensionArrays.Values)
+				{
+					if (arr != null)
+						pressure += (long)arr.Length * sizeof(float);
+				}
+			}
+
+			if (pressure > 0)
+			{
+				GC.AddMemoryPressure(pressure);
+				MemoryPressure = pressure;
+				memoryPressureAdded = true;
+			}
+			*/
+		}
+
+	// NO FINALIZER for short-lived objects - causes GC pressure and finalizer queue backup
+	// Rely on deterministic disposal through cache eviction
+
+	public void Dispose()
+	{
+		if (disposed)
+			return;
+
+		try
+		{
+			if (memoryPressureAdded && MemoryPressure > 0)
+			{
+				try
+				{
+					GC.RemoveMemoryPressure(MemoryPressure);
+				}
+				catch
+				{
+					// Ignore exceptions from GC memory pressure API
+				}
+				finally
+				{
+					MemoryPressure = 0;
+					memoryPressureAdded = false;
+				}
 			}
 
 			Positions = Array.Empty<StrideVector4>();
 			Colors = Array.Empty<StrideVector4>();
 			Normals = Array.Empty<StrideVector4>();
 			Depth = null;
-			ExtraDimensionArrays?.Clear();
-			ExtraDimensionArrays = null;
-
-			disposed = true;
-		}
+		ExtraDimensionArrays?.Clear();
+		ExtraDimensionArrays = null;
+	}
+	catch
+	{
+		// Ensure Dispose never throws
+	}
+	finally
+	{
+		disposed = true;
+	}
+}
 	}
 
     /// <summary>
@@ -81,6 +148,7 @@ namespace Copc.Cache
     public class PointCache : IDisposable
     {
         private bool disposed;
+        private bool cacheMemoryPressureAdded;
         // Configuration
         private readonly long maxMemoryBytes;
         private readonly int estimatedBytesPerPoint;
@@ -89,6 +157,9 @@ namespace Copc.Cache
         // Cache storage
         private readonly Dictionary<VoxelKey, LinkedListNode<CachedNodeData>> cache;
         private readonly LinkedList<CachedNodeData> lruList; // Head = most recent, Tail = least recent
+        
+        // Thread safety for vvvv gamma - multiple patches can call cache methods simultaneously
+        private readonly object cacheLock = new object();
         
         // Statistics
         private long currentMemoryBytes;
@@ -194,13 +265,15 @@ namespace Copc.Cache
             totalEvictions = 0;
 			cacheVersion = 0;
 
-			cachedStrideData = null;
-			strideCacheDirty = true;
-			extraDimensionsForSeparated = null;
-			disposed = false;
+		cachedStrideData = null;
+		strideCacheDirty = true;
+		extraDimensionsForSeparated = null;
+		disposed = false;
+		cacheMemoryPressureAdded = false;
 
-			// Inform GC about the memory pressure from this cache
-			GC.AddMemoryPressure(maxMemoryBytes);
+		// Inform GC about the memory pressure from this cache
+		GC.AddMemoryPressure(maxMemoryBytes);
+		cacheMemoryPressureAdded = true;
         }
 
         /// <summary>
@@ -230,21 +303,24 @@ namespace Copc.Cache
         /// <returns>True if the data was in cache, false otherwise</returns>
         public bool TryGetPoints(VoxelKey key, out CopcPoint[]? points)
         {
-            if (cache.TryGetValue(key, out var node))
+            lock (cacheLock)
             {
-                // Move to front (most recently used)
-                lruList.Remove(node);
-                lruList.AddFirst(node);
-                node.Value.UpdateAccessTime();
-                
-                points = node.Value.Points;
-                totalHits++;
-                return true;
-            }
+                if (cache.TryGetValue(key, out var node))
+                {
+                    // Move to front (most recently used)
+                    lruList.Remove(node);
+                    lruList.AddFirst(node);
+                    node.Value.UpdateAccessTime();
+                    
+                    points = node.Value.Points;
+                    totalHits++;
+                    return true;
+                }
 
-            points = null;
-            totalMisses++;
-            return false;
+                points = null;
+                totalMisses++;
+                return false;
+            }
         }
 
         /// <summary>
@@ -254,67 +330,75 @@ namespace Copc.Cache
         /// <param name="points">The point data to cache</param>
         public void Put(VoxelKey key, CopcPoint[] points)
         {
-            // Calculate memory size for this entry
-            long memorySize = EstimateMemorySize(points);
-
-            // If this single entry is too large for the cache, don't cache it
-            if (memorySize > maxMemoryBytes)
+            lock (cacheLock)
             {
-                return;
+                // Calculate memory size for this entry
+                long memorySize = EstimateMemorySize(points);
+
+                // If this single entry is too large for the cache, don't cache it
+                if (memorySize > maxMemoryBytes)
+                {
+                    return;
+                }
+
+                // Remove existing entry if present
+                if (cache.TryGetValue(key, out var existingNode))
+                {
+                    currentMemoryBytes -= (existingNode.Value.MemorySize + existingNode.Value.SeparatedMemorySize);
+                    existingNode.Value.Separated?.Dispose();
+                    lruList.Remove(existingNode);
+                    cache.Remove(key);
+                }
+
+                // Evict entries until we have enough space
+                while (currentMemoryBytes + memorySize > maxMemoryBytes && lruList.Count > 0)
+                {
+                    EvictLeastRecentlyUsed();
+                }
+
+                // Add new entry
+                var cachedData = new CachedNodeData(key, points, memorySize);
+
+                // Optionally precompute separated arrays for this node (once), accounting for memory
+                if (extraDimensionsForSeparated != null && points.Length > 0)
+                {
+                    // Build separated arrays with depth information
+                    using (var sepData = StrideCacheExtensions.BuildSeparatedFromCopcPoints(points, extraDimensionsForSeparated, null, key.D))
+                    {
+                        var sepMem = EstimateSeparatedMemorySize(sepData);
+
+                        // Ensure capacity for both entries (points + separated for this node)
+                        while (currentMemoryBytes + memorySize + sepMem > maxMemoryBytes && lruList.Count > 0)
+                        {
+                            EvictLeastRecentlyUsed();
+                        }
+
+                        // Only attach if fits
+                        if (currentMemoryBytes + memorySize + sepMem <= maxMemoryBytes)
+                        {
+                            cachedData.Separated = new SeparatedNodeData
+                            {
+                                Positions = sepData.Positions ?? Array.Empty<StrideVector4>(),
+                                Colors = sepData.Colors ?? Array.Empty<StrideVector4>(),
+                                Normals = sepData.Normals ?? Array.Empty<StrideVector4>(),
+                                Depth = sepData.Depth,
+                                ExtraDimensionArrays = sepData.ExtraDimensionArrays
+                            };
+                            // Add memory pressure for the newly created SeparatedNodeData
+                            cachedData.Separated.AddMemoryPressure();
+                            cachedData.SeparatedMemorySize = sepMem;
+                        }
+                        // sepData will be disposed here, removing its memory pressure
+                    }
+                }
+
+                var newNode = lruList.AddFirst(cachedData);
+                cache[key] = newNode;
+                currentMemoryBytes += memorySize + cachedData.SeparatedMemorySize;
+
+                // Mark stride cache dirty since content changed
+                strideCacheDirty = true;
             }
-
-            // Remove existing entry if present
-            if (cache.TryGetValue(key, out var existingNode))
-            {
-				currentMemoryBytes -= (existingNode.Value.MemorySize + existingNode.Value.SeparatedMemorySize);
-				existingNode.Value.Separated?.Dispose();
-                lruList.Remove(existingNode);
-                cache.Remove(key);
-            }
-
-            // Evict entries until we have enough space
-			while (currentMemoryBytes + memorySize > maxMemoryBytes && lruList.Count > 0)
-            {
-                EvictLeastRecentlyUsed();
-            }
-
-            // Add new entry
-			var cachedData = new CachedNodeData(key, points, memorySize);
-
-			// Optionally precompute separated arrays for this node (once), accounting for memory
-			if (extraDimensionsForSeparated != null && points.Length > 0)
-			{
-				// Build separated arrays with depth information
-				var sepData = StrideCacheExtensions.BuildSeparatedFromCopcPoints(points, extraDimensionsForSeparated, null, key.D);
-				var sepMem = EstimateSeparatedMemorySize(sepData);
-
-				// Ensure capacity for both entries (points + separated for this node)
-				while (currentMemoryBytes + memorySize + sepMem > maxMemoryBytes && lruList.Count > 0)
-				{
-					EvictLeastRecentlyUsed();
-				}
-
-				// Only attach if fits
-				if (currentMemoryBytes + memorySize + sepMem <= maxMemoryBytes)
-				{
-					cachedData.Separated = new SeparatedNodeData
-					{
-						Positions = sepData.Positions ?? Array.Empty<StrideVector4>(),
-						Colors = sepData.Colors ?? Array.Empty<StrideVector4>(),
-						Normals = sepData.Normals ?? Array.Empty<StrideVector4>(),
-						Depth = sepData.Depth,
-						ExtraDimensionArrays = sepData.ExtraDimensionArrays
-					};
-					cachedData.SeparatedMemorySize = sepMem;
-				}
-			}
-
-            var newNode = lruList.AddFirst(cachedData);
-            cache[key] = newNode;
-			currentMemoryBytes += memorySize + cachedData.SeparatedMemorySize;
-
-			// Mark stride cache dirty since content changed
-			strideCacheDirty = true;
         }
 
 		/// <summary>
@@ -458,7 +542,10 @@ namespace Copc.Cache
         /// <returns>True if the node is cached, false otherwise</returns>
         public bool Contains(VoxelKey key)
         {
-            return cache.ContainsKey(key);
+            lock (cacheLock)
+            {
+                return cache.ContainsKey(key);
+            }
         }
 
         /// <summary>
@@ -468,18 +555,21 @@ namespace Copc.Cache
         /// <returns>True if the entry was removed, false if it wasn't in cache</returns>
         public bool Remove(VoxelKey key)
         {
-            if (cache.TryGetValue(key, out var node))
+            lock (cacheLock)
             {
-                currentMemoryBytes -= (node.Value.MemorySize + node.Value.SeparatedMemorySize);
-                node.Value.Separated?.Dispose();
-                lruList.Remove(node);
-                cache.Remove(key);
-				// Content changed
-				strideCacheDirty = true;
-				cacheVersion++;
-                return true;
+                if (cache.TryGetValue(key, out var node))
+                {
+                    currentMemoryBytes -= (node.Value.MemorySize + node.Value.SeparatedMemorySize);
+                    node.Value.Separated?.Dispose();
+                    lruList.Remove(node);
+                    cache.Remove(key);
+                    // Content changed
+                    strideCacheDirty = true;
+                    cacheVersion++;
+                    return true;
+                }
+                return false;
             }
-            return false;
         }
 
         /// <summary>
@@ -487,26 +577,29 @@ namespace Copc.Cache
         /// </summary>
         public void Clear()
         {
-            // Clear references and dispose separated data to help GC
-            foreach (var node in lruList)
+            lock (cacheLock)
             {
-                node.Points = Array.Empty<CopcPoint>();
-                node.Separated?.Dispose();
-                node.Separated = null;
+                // Clear references and dispose separated data to help GC
+                foreach (var node in lruList)
+                {
+                    node.Points = Array.Empty<CopcPoint>();
+                    node.Separated?.Dispose();
+                    node.Separated = null;
+                }
+
+                cache.Clear();
+                lruList.Clear();
+                currentMemoryBytes = 0;
+                cachedStrideData?.Dispose();
+                cachedStrideData = null;
+                strideCacheDirty = true;
+                cacheVersion++;
+
+                // Clear scratch lists
+                allPoints.Clear();
+                nodesToLoadScratch.Clear();
+                allStridePointsScratch.Clear();
             }
-
-            cache.Clear();
-            lruList.Clear();
-            currentMemoryBytes = 0;
-			cachedStrideData?.Dispose();
-			cachedStrideData = null;
-			strideCacheDirty = true;
-			cacheVersion++;
-
-			// Clear scratch lists
-			allPoints.Clear();
-			nodesToLoadScratch.Clear();
-			allStridePointsScratch.Clear();
         }
 
         /// <summary>
@@ -533,19 +626,22 @@ namespace Copc.Cache
         /// </summary>
         public List<CachedNodeInfo> GetCachedNodes()
         {
-            var result = new List<CachedNodeInfo>();
-            foreach (var entry in lruList)
+            lock (cacheLock)
             {
-                result.Add(new CachedNodeInfo
+                var result = new List<CachedNodeInfo>();
+                foreach (var entry in lruList)
                 {
-                    Key = entry.Key,
-                    PointCount = entry.Points.Length,
-                    MemorySize = entry.MemorySize,
-                    LastAccessTime = entry.LastAccessTime,
-                    AccessCount = entry.AccessCount
-                });
+                    result.Add(new CachedNodeInfo
+                    {
+                        Key = entry.Key,
+                        PointCount = entry.Points.Length,
+                        MemorySize = entry.MemorySize,
+                        LastAccessTime = entry.LastAccessTime,
+                        AccessCount = entry.AccessCount
+                    });
+                }
+                return result;
             }
-            return result;
         }
 
         /// <summary>
@@ -581,52 +677,48 @@ namespace Copc.Cache
 			return GetOrBuildStrideCacheDataSeparated(extraDimensions, null);
 		}
 
-		/// <summary>
-		/// Builds or returns cached Stride-format separated arrays for all cached points, optionally including only a subset of extra dimensions.
-		/// Rebuilds only when cache content changes (on Put/Remove/Clear/Evict).
-		/// </summary>
-		public StrideCacheData GetOrBuildStrideCacheDataSeparated(List<ExtraDimension>? extraDimensions, HashSet<string>? includeExtraDimensionNames)
+	/// <summary>
+	/// Builds or returns cached Stride-format separated arrays for all cached points, optionally including only a subset of extra dimensions.
+	/// Rebuilds only when cache content changes (on Put/Remove/Clear/Evict).
+	/// </summary>
+	public StrideCacheData GetOrBuildStrideCacheDataSeparated(List<ExtraDimension>? extraDimensions, HashSet<string>? includeExtraDimensionNames)
+	{
+		// Check if we can return cached data (quick check with lock)
+		lock (cacheLock)
 		{
 			if (cachedStrideData != null && !strideCacheDirty)
 			{
 				return cachedStrideData;
 			}
+		}
 
+		// CRITICAL: Only hold lock while READING from cache, not during slow array building
+		// This prevents blocking UpdateSeparated() which needs to Put() into cache
+		var nodePointArrays = new List<CopcPoint[]>();
+		var nodeSeparated = new List<SeparatedNodeData?>();
+		var nodeOffsets = new List<int>();
+		var nodeKeys = new List<VoxelKey>();
+		int totalPoints = 0;
+
+		// Quick lock just to snapshot cache contents
+		lock (cacheLock)
+		{
 			// Dispose old cached stride data if it exists
 			cachedStrideData?.Dispose();
 
 			// Gather cached arrays and compute total size
-			var cachedNodes = GetCachedNodes();
-			var nodePointArrays = new List<CopcPoint[]>(cachedNodes.Count);
-			var nodeSeparated = new List<SeparatedNodeData?>(cachedNodes.Count);
-			var nodeOffsets = new int[cachedNodes.Count];
-			int totalPoints = 0;
-
-			for (int i = 0; i < cachedNodes.Count; i++)
+			foreach (var entry in lruList)
 			{
-				var nodeInfo = cachedNodes[i];
-				if (TryGetPoints(nodeInfo.Key, out var copcPoints) && copcPoints != null && copcPoints.Length > 0)
+				if (entry.Points != null && entry.Points.Length > 0)
 				{
-					nodeOffsets[i] = totalPoints;
-					nodePointArrays.Add(copcPoints);
-					// Try separated (if prepared at put-time)
-					if (cache.TryGetValue(nodeInfo.Key, out var listNode) && listNode != null)
-					{
-						nodeSeparated.Add(listNode.Value.Separated);
-					}
-					else
-					{
-						nodeSeparated.Add(null);
-					}
-					totalPoints += copcPoints.Length;
-				}
-				else
-				{
-					nodeOffsets[i] = totalPoints;
-					nodePointArrays.Add(Array.Empty<CopcPoint>());
-					nodeSeparated.Add(null);
+					nodeOffsets.Add(totalPoints);
+					nodePointArrays.Add(entry.Points);
+					nodeSeparated.Add(entry.Separated);
+					nodeKeys.Add(entry.Key);
+					totalPoints += entry.Points.Length;
 				}
 			}
+		} // Release lock here - now UpdateSeparated can proceed while we build arrays
 
 			// Allocate destination arrays
 			var positions = new Stride.Core.Mathematics.Vector4[totalPoints];
@@ -655,15 +747,16 @@ namespace Copc.Cache
 			}
 
 			// Fill arrays per node; prefer block copies when separated data available
+			// Use sequential processing for vvvv gamma stability
 			int nodeCount = nodePointArrays.Count;
-			Parallel.For(0, nodeCount, i =>
+			for (int i = 0; i < nodeCount; i++)
 			{
 				var pts = nodePointArrays[i];
-				if (pts == null || pts.Length == 0) return;
+				if (pts == null || pts.Length == 0) continue;
 				int start = nodeOffsets[i];
 				var sep = nodeSeparated[i];
-				var nodeInfo = cachedNodes[i];
-				int nodeDepth = nodeInfo.Key.D;
+				var nodeKey = nodeKeys[i];
+				int nodeDepth = nodeKey.D;
 
 				if (sep != null && sep.Positions != null && sep.Positions.Length == pts.Length)
 				{
@@ -706,7 +799,7 @@ namespace Copc.Cache
 						}
 					}
 
-					return;
+					continue;
 				}
 
 				for (int k = 0; k < pts.Length; k++)
@@ -742,55 +835,68 @@ namespace Copc.Cache
 						}
 					}
 				}
-			});
+			}
 
-			var data = new StrideCacheData
-			{
-				Positions = positions,
-				Colors = colors,
-				Normals = normals,
-				Depth = depths,
-				ExtraDimensionArrays = extraArrays
-			};
-			data.AddMemoryPressure();
+		var data = new StrideCacheData
+		{
+			Positions = positions,
+			Colors = colors,
+			Normals = normals,
+			Depth = depths,
+			ExtraDimensionArrays = extraArrays
+		};
+		data.AddMemoryPressure();
 
+		// Quick lock to update cached data
+		lock (cacheLock)
+		{
 			cachedStrideData = data;
 			strideCacheDirty = false;
-			return data;
 		}
+
+		return data;
+	}
 
 		/// <summary>
 		/// Builds separated arrays only for the specified nodes using cached points.
 		/// Nodes must be pre-warmed; this does not trigger loading.
 		/// includeExtraDimensionNames can be used to restrict which extra dimensions are extracted.
 		/// </summary>
-		public StrideCacheData BuildSeparatedFromNodes(IEnumerable<Node> nodes, List<ExtraDimension>? extraDimensions, HashSet<string>? includeExtraDimensionNames = null)
+	public StrideCacheData BuildSeparatedFromNodes(IEnumerable<Node> nodes, List<ExtraDimension>? extraDimensions, HashSet<string>? includeExtraDimensionNames = null)
+	{
+		if (nodes == null) throw new ArgumentNullException(nameof(nodes));
+
+		// CRITICAL: Only hold lock briefly while reading from cache
+		// Release before expensive array operations to avoid blocking UpdateSeparated
+		var nodeList = new List<Node>(nodes);
+		var nodePointArrays = new List<CopcPoint[]>(nodeList.Count);
+		var nodeSeparated = new List<SeparatedNodeData?>(nodeList.Count);
+		var nodeOffsets = new int[nodeList.Count];
+		int totalPoints = 0;
+
+		// Quick lock just to read from cache
+		lock (cacheLock)
 		{
-			if (nodes == null) throw new ArgumentNullException(nameof(nodes));
-
-			// Collect arrays per node and compute prefix offsets
-			var nodeList = new List<Node>(nodes);
-			var nodePointArrays = new List<CopcPoint[]>(nodeList.Count);
-			var nodeSeparated = new List<SeparatedNodeData?>(nodeList.Count);
-			var nodeOffsets = new int[nodeList.Count];
-			int totalPoints = 0;
-
 			for (int i = 0; i < nodeList.Count; i++)
 			{
 				var node = nodeList[i];
-				if (TryGetPoints(node.Key, out var pts) && pts != null && pts.Length > 0)
+				// Direct cache access within lock - don't call TryGetPoints as it locks again
+				if (cache.TryGetValue(node.Key, out var cacheNode) && cacheNode != null)
 				{
-					nodeOffsets[i] = totalPoints;
-					nodePointArrays.Add(pts);
-					if (cache.TryGetValue(node.Key, out var listNode) && listNode != null)
+					var pts = cacheNode.Value.Points;
+					if (pts != null && pts.Length > 0)
 					{
-						nodeSeparated.Add(listNode.Value.Separated);
+						nodeOffsets[i] = totalPoints;
+						nodePointArrays.Add(pts);
+						nodeSeparated.Add(cacheNode.Value.Separated);
+						totalPoints += pts.Length;
 					}
 					else
 					{
+						nodeOffsets[i] = totalPoints;
+						nodePointArrays.Add(Array.Empty<CopcPoint>());
 						nodeSeparated.Add(null);
 					}
-					totalPoints += pts.Length;
 				}
 				else
 				{
@@ -799,6 +905,7 @@ namespace Copc.Cache
 					nodeSeparated.Add(null);
 				}
 			}
+		} // Release lock - now UpdateSeparated can proceed while we build arrays
 
 			var positions = new Stride.Core.Mathematics.Vector4[totalPoints];
 			var colors = new Stride.Core.Mathematics.Vector4[totalPoints];
@@ -825,11 +932,11 @@ namespace Copc.Cache
 				}
 			}
 
-			int nodeCount = nodePointArrays.Count;
-			Parallel.For(0, nodeCount, i =>
-			{
-				var pts = nodePointArrays[i];
-				if (pts == null || pts.Length == 0) return;
+		int nodeCount = nodePointArrays.Count;
+		for (int i = 0; i < nodeCount; i++)
+		{
+			var pts = nodePointArrays[i];
+			if (pts == null || pts.Length == 0) continue;
 				int start = nodeOffsets[i];
 				var sep = nodeSeparated[i];
 				var node = nodeList[i];
@@ -876,7 +983,7 @@ namespace Copc.Cache
 						}
 					}
 
-					return;
+					continue;
 				}
 
 				for (int k = 0; k < pts.Length; k++)
@@ -912,7 +1019,7 @@ namespace Copc.Cache
 						}
 					}
 				}
-			});
+			}
 
 			var result = new StrideCacheData
 			{
@@ -965,25 +1072,68 @@ namespace Copc.Cache
 			return size;
 		}
 
-		/// <summary>
-		/// Disposes the cache and releases all memory.
-		/// </summary>
-		public void Dispose()
+	/// <summary>
+	/// Finalizer to ensure memory pressure is released even if Dispose is not called.
+	/// </summary>
+	~PointCache()
+	{
+		// Finalizers must NEVER throw exceptions or they crash the process
+		try
 		{
-			if (disposed)
-				return;
+			if (cacheMemoryPressureAdded)
+			{
+				try
+				{
+					GC.RemoveMemoryPressure(maxMemoryBytes);
+				}
+				catch
+				{
+					// Swallow all exceptions in finalizer
+				}
+			}
+		}
+		catch
+		{
+			// Swallow ALL exceptions in finalizer - CRITICAL for stability
+		}
+	}
 
+	/// <summary>
+	/// Disposes the cache and releases all memory.
+	/// </summary>
+	public void Dispose()
+	{
+		if (disposed)
+			return;
+
+		try
+		{
 			// Clear all cached data and dispose separated data
 			foreach (var node in lruList)
 			{
-				node.Points = Array.Empty<CopcPoint>();
-				node.Separated?.Dispose();
-				node.Separated = null;
+				try
+				{
+					node.Points = Array.Empty<CopcPoint>();
+					node.Separated?.Dispose();
+					node.Separated = null;
+				}
+				catch
+				{
+					// Continue with other nodes even if one fails
+				}
 			}
 
 			cache.Clear();
 			lruList.Clear();
-			cachedStrideData?.Dispose();
+			
+			try
+			{
+				cachedStrideData?.Dispose();
+			}
+			catch
+			{
+				// Ignore disposal errors
+			}
 			cachedStrideData = null;
 
 			// Clear scratch lists
@@ -991,11 +1141,33 @@ namespace Copc.Cache
 			nodesToLoadScratch.Clear();
 			allStridePointsScratch.Clear();
 
-			// Release GC memory pressure
-			GC.RemoveMemoryPressure(maxMemoryBytes);
-
-			disposed = true;
+			// Release GC memory pressure only if it was added
+			if (cacheMemoryPressureAdded)
+			{
+				try
+				{
+					GC.RemoveMemoryPressure(maxMemoryBytes);
+				}
+				catch
+				{
+					// Ignore exceptions from GC memory pressure API
+				}
+				finally
+				{
+					cacheMemoryPressureAdded = false;
+				}
+			}
 		}
+		catch
+		{
+			// Ensure Dispose never throws
+		}
+		finally
+		{
+			disposed = true;
+			GC.SuppressFinalize(this);
+		}
+	}
     }
 
     /// <summary>

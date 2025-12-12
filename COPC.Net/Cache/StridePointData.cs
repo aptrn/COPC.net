@@ -235,6 +235,12 @@ namespace Copc.Cache
         /// </summary>
         internal void AddMemoryPressure()
         {
+            // DISABLED for vvvv gamma stability
+            // Causes memory pressure accumulation and crashes when updating rapidly
+            // Cache already manages memory via maxMemoryBytes
+            return;
+            
+            /*
             if (memoryPressure > 0)
                 return; // Already added
 
@@ -263,28 +269,51 @@ namespace Copc.Cache
                 GC.AddMemoryPressure(pressure);
                 memoryPressure = pressure;
             }
+            */
         }
+
+        // NO FINALIZER for short-lived objects - causes GC pressure and finalizer queue backup
+        // Rely on deterministic disposal
 
         public void Dispose()
         {
             if (disposed)
                 return;
 
-            if (memoryPressure > 0)
+            try
             {
-                GC.RemoveMemoryPressure(memoryPressure);
-                memoryPressure = 0;
+                if (memoryPressure > 0)
+                {
+                    try
+                    {
+                        GC.RemoveMemoryPressure(memoryPressure);
+                    }
+                    catch
+                    {
+                        // Ignore exceptions from GC memory pressure API
+                    }
+                    finally
+                    {
+                        memoryPressure = 0;
+                    }
+                }
+
+                Points = Array.Empty<StridePoint>();
+                Positions = null;
+                Colors = null;
+                Normals = null;
+                Depth = null;
+                ExtraDimensionArrays?.Clear();
+                ExtraDimensionArrays = null;
             }
-
-            Points = Array.Empty<StridePoint>();
-            Positions = null;
-            Colors = null;
-            Normals = null;
-            Depth = null;
-            ExtraDimensionArrays?.Clear();
-            ExtraDimensionArrays = null;
-
-            disposed = true;
+            catch
+            {
+                // Ensure Dispose never throws
+            }
+            finally
+            {
+			disposed = true;
+		}
         }
 
         public override string ToString()

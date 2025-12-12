@@ -108,11 +108,11 @@ namespace Copc.Cache
         }
 
         /// <summary>
-        /// Updates the cache with provided nodes. Decompression is currently single-threaded
-        /// due to thread-safety concerns in the decompressor.
+        /// Updates the cache with provided nodes. Decompression is single-threaded.
+        /// For large node counts, processes in batches to avoid memory exhaustion.
         /// </summary>
         /// <param name="nodes">Nodes to warm into cache</param>
-        /// <param name="degreeOfParallelism">Ignored for now; decompression runs single-threaded</param>
+        /// <param name="degreeOfParallelism">Ignored; decompression runs single-threaded</param>
         public void Update(IEnumerable<Node> nodes, int degreeOfParallelism)
         {
             if (nodes == null)
@@ -156,43 +156,55 @@ namespace Copc.Cache
             if (compressed.Count == 0)
                 return;
 
-            // Step 2: Decompress sequentially (thread-safety)
             var header = reader.Config.LasHeader;
             var extra = reader.Config.ExtraDimensions;
-            var results = new CopcPoint[compressed.Count][];
-
-            for (int i = 0; i < compressed.Count; i++)
-            {
-                try
-                {
-                    var item = compressed[i];
-                    var points = LazDecompressor.DecompressChunk(
-                        header.BasePointFormat,
-                        header.PointDataRecordLength,
-                        item.data,
-                        item.node.PointCount,
-                        header,
-                        extra
-                    );
-                    results[i] = points;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Warning: Failed to decompress node {compressed[i].node.Key}: {ex.Message}");
-                    results[i] = Array.Empty<CopcPoint>();
-                }
-            }
-
-            // Step 3: Put into cache sequentially to keep cache structure consistent
             bool anyAdded = false;
-            for (int i = 0; i < compressed.Count; i++)
+
+            // Process in batches to avoid holding too many decompressed nodes in memory
+            const int batchSize = 100;
+            
+            for (int batchStart = 0; batchStart < compressed.Count; batchStart += batchSize)
             {
-                var node = compressed[i].node;
-                var points = results[i] ?? Array.Empty<CopcPoint>();
-                if (points.Length > 0)
+                int batchEnd = Math.Min(batchStart + batchSize, compressed.Count);
+                int currentBatchSize = batchEnd - batchStart;
+                
+                // Step 2: Decompress batch
+                var results = new CopcPoint[currentBatchSize][];
+                
+                for (int i = 0; i < currentBatchSize; i++)
                 {
-                    cache.Put(node.Key, points);
-                    anyAdded = true;
+                    try
+                    {
+                        var item = compressed[batchStart + i];
+                        var points = LazDecompressor.DecompressChunk(
+                            header.BasePointFormat,
+                            header.PointDataRecordLength,
+                            item.data,
+                            item.node.PointCount,
+                            header,
+                            extra
+                        );
+                        results[i] = points;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Warning: Failed to decompress node {compressed[batchStart + i].node.Key}: {ex.Message}");
+                        results[i] = Array.Empty<CopcPoint>();
+                    }
+                }
+
+                // Step 3: Put batch into cache immediately
+                for (int i = 0; i < currentBatchSize; i++)
+                {
+                    var node = compressed[batchStart + i].node;
+                    var points = results[i] ?? Array.Empty<CopcPoint>();
+                    if (points.Length > 0)
+                    {
+                        cache.Put(node.Key, points);
+                        anyAdded = true;
+                    }
+                    // Clear reference
+                    results[i] = null!;
                 }
             }
 
@@ -353,7 +365,9 @@ namespace Copc.Cache
 	/// </summary>
 	public void UpdateSeparated(IEnumerable<Node> nodes, string[]? includeExtraDimensionNames = null, bool storeSeparatedOnly = false)
 	{
-		UpdateSeparated(nodes, includeExtraDimensionNames, storeSeparatedOnly, degreeOfParallelism: Environment.ProcessorCount);
+		// Limit parallelism to avoid memory exhaustion with large node counts
+		int maxParallel = Math.Min(Environment.ProcessorCount, 8);
+		UpdateSeparated(nodes, includeExtraDimensionNames, storeSeparatedOnly, degreeOfParallelism: maxParallel);
 	}
 
 	/// <summary>
@@ -364,7 +378,7 @@ namespace Copc.Cache
 	/// <param name="nodes">Nodes to update</param>
 	/// <param name="includeExtraDimensionNames">Optional array of extra dimension names to include (null = all)</param>
 	/// <param name="storeSeparatedOnly">If true, only stores separated arrays without CopcPoint[] data</param>
-	/// <param name="degreeOfParallelism">Number of threads to use for decompression (default: processor count)</param>
+	/// <param name="degreeOfParallelism">Number of threads to use for decompression (default: 8, max recommended)</param>
 	public void UpdateSeparated(IEnumerable<Node> nodes, string[]? includeExtraDimensionNames, bool storeSeparatedOnly, int degreeOfParallelism)
 	{
 		if (nodes == null) throw new ArgumentNullException(nameof(nodes));
@@ -398,9 +412,9 @@ namespace Copc.Cache
 					compressed.Add((node, data));
 				}
 			}
-			catch (Exception ex)
+			catch
 			{
-				Console.WriteLine($"Warning: Failed to read compressed data for node {node.Key}: {ex.Message}");
+				// Silent error handling - avoid console issues in vvvv gamma
 			}
 		}
 
@@ -413,72 +427,89 @@ namespace Copc.Cache
 		if (includeExtraDimensionNames != null && includeExtraDimensionNames.Length > 0)
 			include = new HashSet<string>(includeExtraDimensionNames);
 
-		// Step 2: Decompress in parallel - each decompressor is independent
-		var results = new (Node node, SeparatedNodeData? separated, CopcPoint[]? points)[compressed.Count];
-		
-		var parallelOptions = new ParallelOptions 
-		{ 
-			MaxDegreeOfParallelism = Math.Max(1, degreeOfParallelism) 
-		};
-
-		Parallel.For(0, compressed.Count, parallelOptions, i =>
-		{
-			var item = compressed[i];
-			try
-			{
-				var separated = DecompressNodeToSeparated(item.node, item.data, header, extras, include);
-				
-				CopcPoint[]? points = null;
-				if (!storeSeparatedOnly)
-				{
-					// If we also want CopcPoint[] for compatibility, build via existing path once
-					points = LazDecompressor.DecompressChunk(
-						header.BasePointFormat,
-						header.PointDataRecordLength,
-						item.data,
-						item.node.PointCount,
-						header,
-						extras
-					);
-				}
-				
-				results[i] = (item.node, separated, points);
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"Warning: Failed to decompress (separated) node {item.node.Key}: {ex.Message}");
-				results[i] = (item.node, null, null);
-			}
-		});
-
-		// Step 3: Insert into cache sequentially (cache structure must remain consistent)
+		// Process sequentially for vvvv gamma stability - parallel decompression causes crashes
+		// Process in small batches to allow garbage collection and prevent memory spikes
+		const int maxBatchSize = 50;
 		bool anyAdded = false;
-		for (int i = 0; i < results.Length; i++)
+		
+		for (int batchStart = 0; batchStart < compressed.Count; batchStart += maxBatchSize)
 		{
-			var (node, separated, points) = results[i];
-			if (separated != null)
+			int batchEnd = Math.Min(batchStart + maxBatchSize, compressed.Count);
+			int batchSize = batchEnd - batchStart;
+			
+			// Step 2: Decompress batch SEQUENTIALLY (thread-safe for vvvv gamma)
+			var results = new (Node node, SeparatedNodeData? separated, CopcPoint[]? points)[batchSize];
+			
+			for (int i = 0; i < batchSize; i++)
 			{
+				var item = compressed[batchStart + i];
 				try
 				{
 					if (storeSeparatedOnly)
 					{
+						// Only need separated data, decompress once
+						var separated = DecompressNodeToSeparated(item.node, item.data, header, extras, include);
+						results[i] = (item.node, separated, null);
+					}
+					else
+					{
+						// Need CopcPoint[] - decompress ONCE and let cache build separated if needed
+						CopcPoint[] points = LazDecompressor.DecompressChunk(
+							header.BasePointFormat,
+							header.PointDataRecordLength,
+							item.data,
+							item.node.PointCount,
+							header,
+							extras
+						);
+						// Don't decompress twice! Cache.Put() will build separated if configured
+						results[i] = (item.node, null, points);
+					}
+				}
+				catch
+				{
+					// Silent error handling for vvvv gamma
+					results[i] = (item.node, null, null);
+				}
+			}
+
+			// Step 3: Insert batch into cache sequentially and dispose immediately
+			for (int i = 0; i < results.Length; i++)
+			{
+				var (node, separated, points) = results[i];
+				
+				if (node == null)
+					continue;
+					
+				try
+				{
+					if (storeSeparatedOnly && separated != null)
+					{
 						cache.PutSeparatedOnly(node.Key, separated);
 						anyAdded = true;
+						// separated is now owned by cache, don't dispose here
 					}
 					else if (points != null)
 					{
-						cache.Put(node.Key, points); // Put() will attach separated automatically if configured
+						cache.Put(node.Key, points); // Put() will build separated if configured
 						anyAdded = true;
 					}
 				}
-				catch (Exception ex)
+				catch
 				{
-					Console.WriteLine($"Warning: Failed to cache node {node.Key}: {ex.Message}");
+					// Silent error handling in vvvv gamma environment
+					// Dispose any separated data that wasn't cached
+					try { separated?.Dispose(); } catch { }
 				}
+				
+				// Clear result reference immediately
+				results[i] = (null!, null, null);
 			}
+			
+			// Don't force GC - causes more problems than it solves in vvvv gamma
 		}
 
-		// Increment version once for this batch update
+		// Increment version once for this entire update operation
 		if (anyAdded)
 		{
 			cache.IncrementVersion();
@@ -498,16 +529,12 @@ namespace Copc.Cache
 			var decompressor = new ChunkDecompressor();
 			decompressor.Open(pointFormat, pointSize, compressedData);
 
-			// Pre-allocate
-			var positions = new StrideVector4[pointCount];
-			var colors = new StrideVector4[pointCount];
-			var depths = new int[pointCount];
+		// Pre-allocate
+		var positions = new StrideVector4[pointCount];
+		var colors = new StrideVector4[pointCount];
+		var depths = new int[pointCount];
 
-			// Inform GC about memory pressure from these large allocations
-			long arrayMemoryPressure = (long)pointCount * sizeof(float) * 4 * 2 + (long)pointCount * sizeof(int); // positions + colors + depths
-			GC.AddMemoryPressure(arrayMemoryPressure);
-
-			Dictionary<string, float[]>? extraArrays = null;
+		Dictionary<string, float[]>? extraArrays = null;
 			List<ExtraDimension>? dimsOrdered = null;
 			bool includeExtras = extraDimensions != null && extraDimensions.Count > 0;
 			if (includeExtras)
@@ -631,27 +658,20 @@ namespace Copc.Cache
 				}
 			}
 
-			decompressor.Close();
+		decompressor.Close();
 
-			var result = new SeparatedNodeData
-			{
-				Positions = positions,
-				Colors = colors,
-				Depth = depths,
-				ExtraDimensionArrays = extraArrays,
-				MemoryPressure = arrayMemoryPressure
-			};
+		var result = new SeparatedNodeData
+		{
+			Positions = positions,
+			Colors = colors,
+			Depth = depths,
+			ExtraDimensionArrays = extraArrays
+		};
 
-			// Add extra dimension array memory pressure
-			if (extraArrays != null)
-			{
-				foreach (var arr in extraArrays.Values)
-				{
-					result.MemoryPressure += (long)arr.Length * sizeof(float);
-				}
-			}
+		// Add GC memory pressure for all allocated arrays
+		result.AddMemoryPressure();
 
-			return result;
+		return result;
 		}
 
 		private static int GetStandardPointSize(int pointFormat)
